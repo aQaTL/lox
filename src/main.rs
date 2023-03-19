@@ -119,3 +119,96 @@ fn run(source: &str) -> Result<(), ExecutionError> {
 	}
 	Ok(())
 }
+
+enum Expr {
+	Literal(token::Token),
+	Unary {
+		operator: token::Token,
+		expr: Box<Expr>,
+	},
+	Binary {
+		left: Box<Expr>,
+		operator: token::Token,
+		right: Box<Expr>,
+	},
+	Grouping(Box<Expr>),
+}
+
+fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
+	use token::{Token, TokenType};
+
+	fn parenthesize(w: &mut impl std::fmt::Write, name: &str, exprs: &[&Expr]) -> std::fmt::Result {
+		write!(w, "({name}")?;
+		for expr in exprs {
+			write!(w, " ")?;
+			print_ast(expr, w)?;
+		}
+		write!(w, ")")?;
+		Ok(())
+	}
+
+	match expr {
+		Expr::Literal(Token {
+			token_type: TokenType::Number(v),
+			..
+		}) => write!(w, "{v}"),
+		Expr::Literal(Token {
+			token_type: TokenType::String(v),
+			..
+		}) => write!(w, "{v}"),
+		Expr::Literal(Token {
+			token_type: TokenType::Identifier,
+			lexeme,
+			..
+		}) => write!(w, "{lexeme}"),
+		Expr::Literal(l) => panic!("{l:?}"),
+		Expr::Binary {
+			left,
+			operator: Token { lexeme, .. },
+			right,
+		} => parenthesize(w, lexeme, &[left, right]),
+		Expr::Grouping(expr) => parenthesize(w, "group", &[expr]),
+		Expr::Unary { operator, expr } => parenthesize(w, &operator.lexeme, &[expr]),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::Expr;
+	use crate::token::{Token, TokenType};
+
+	#[test]
+	fn test_ast_printer() {
+		let expr = Expr::Binary {
+			left: Box::new(Expr::Unary {
+				operator: Token {
+					token_type: TokenType::Minus,
+					lexeme: "-".to_string(),
+					line: 1,
+				},
+				expr: Box::new(Expr::Literal(Token {
+					token_type: TokenType::Number(123.0),
+					lexeme: "123".to_string(),
+					line: 1,
+				})),
+			}),
+			operator: Token {
+				token_type: TokenType::Star,
+				lexeme: "*".to_string(),
+				line: 1,
+			},
+			right: Box::new(Expr::Grouping(Box::new(Expr::Literal(Token {
+				token_type: TokenType::Number(45.67),
+				lexeme: "45.67".to_string(),
+				line: 1,
+			})))),
+		};
+
+		let expected = "(* (- 123) (group 45.67))";
+
+		let mut actual = String::new();
+		super::print_ast(&expr, &mut actual).unwrap();
+
+		assert_eq!(expected, actual);
+	}
+}
