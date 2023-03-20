@@ -9,6 +9,7 @@ use crate::cli::Args;
 use crate::scanner::Scanner;
 
 mod cli;
+mod parser;
 mod scanner;
 mod token;
 
@@ -38,7 +39,7 @@ fn main() {
 	};
 
 	if let Err(err) = result {
-		eprintln!("Error: {err:#?}");
+		eprintln!("Error: {err}");
 		std::process::exit(144);
 	}
 }
@@ -48,6 +49,17 @@ enum Error {
 	Io(io::Error),
 	ExecutionError(ExecutionError),
 }
+
+impl Display for Error {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match self {
+			Error::Io(err) => write!(f, "io error: {err}"),
+			Error::ExecutionError(err) => err.fmt(f),
+		}
+	}
+}
+
+impl std::error::Error for Error {}
 
 impl From<ExecutionError> for Error {
 	fn from(v: ExecutionError) -> Self {
@@ -78,7 +90,7 @@ fn run_prompt(_args: &Args) -> Result<(), Error> {
 			break;
 		}
 		if let Err(err) = run(&line) {
-			eprintln!("Error: {err:#?}");
+			eprintln!("Error: {err}");
 		}
 		HAD_ERROR.store(false, Ordering::Relaxed);
 	}
@@ -98,6 +110,24 @@ fn run_file(_args: &Args, script: &Path) -> Result<(), Error> {
 #[derive(Debug)]
 enum ExecutionError {
 	GenericError,
+	Parse(parser::Error),
+}
+
+impl Display for ExecutionError {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match self {
+			ExecutionError::GenericError => write!(f, "generic error"),
+			ExecutionError::Parse(err) => write!(f, "parse error: {err}"),
+		}
+	}
+}
+
+impl std::error::Error for ExecutionError {}
+
+impl From<parser::Error> for ExecutionError {
+	fn from(v: parser::Error) -> Self {
+		ExecutionError::Parse(v)
+	}
 }
 
 static HAD_ERROR: AtomicBool = AtomicBool::new(false);
@@ -114,101 +144,11 @@ fn report(line: usize, place: &str, msg: impl Display) {
 fn run(source: &str) -> Result<(), ExecutionError> {
 	let scanner = Scanner::new(source);
 	let tokens = scanner.scan_tokens();
-	for token in tokens {
+	for token in &tokens {
 		println!("Token: {token:?}");
 	}
+	let expr = parser::Parser::new(tokens).parse()?;
+	println!("Expr: {expr:#?}");
+	println!("Expr: {expr}");
 	Ok(())
-}
-
-enum Expr {
-	Literal(token::Token),
-	Unary {
-		operator: token::Token,
-		expr: Box<Expr>,
-	},
-	Binary {
-		left: Box<Expr>,
-		operator: token::Token,
-		right: Box<Expr>,
-	},
-	Grouping(Box<Expr>),
-}
-
-fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
-	use token::{Token, TokenType};
-
-	fn parenthesize(w: &mut impl std::fmt::Write, name: &str, exprs: &[&Expr]) -> std::fmt::Result {
-		write!(w, "({name}")?;
-		for expr in exprs {
-			write!(w, " ")?;
-			print_ast(expr, w)?;
-		}
-		write!(w, ")")?;
-		Ok(())
-	}
-
-	match expr {
-		Expr::Literal(Token {
-			token_type: TokenType::Number(v),
-			..
-		}) => write!(w, "{v}"),
-		Expr::Literal(Token {
-			token_type: TokenType::String(v),
-			..
-		}) => write!(w, "{v}"),
-		Expr::Literal(Token {
-			token_type: TokenType::Identifier,
-			lexeme,
-			..
-		}) => write!(w, "{lexeme}"),
-		Expr::Literal(l) => panic!("{l:?}"),
-		Expr::Binary {
-			left,
-			operator: Token { lexeme, .. },
-			right,
-		} => parenthesize(w, lexeme, &[left, right]),
-		Expr::Grouping(expr) => parenthesize(w, "group", &[expr]),
-		Expr::Unary { operator, expr } => parenthesize(w, &operator.lexeme, &[expr]),
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::Expr;
-	use crate::token::{Token, TokenType};
-
-	#[test]
-	fn test_ast_printer() {
-		let expr = Expr::Binary {
-			left: Box::new(Expr::Unary {
-				operator: Token {
-					token_type: TokenType::Minus,
-					lexeme: "-".to_string(),
-					line: 1,
-				},
-				expr: Box::new(Expr::Literal(Token {
-					token_type: TokenType::Number(123.0),
-					lexeme: "123".to_string(),
-					line: 1,
-				})),
-			}),
-			operator: Token {
-				token_type: TokenType::Star,
-				lexeme: "*".to_string(),
-				line: 1,
-			},
-			right: Box::new(Expr::Grouping(Box::new(Expr::Literal(Token {
-				token_type: TokenType::Number(45.67),
-				lexeme: "45.67".to_string(),
-				line: 1,
-			})))),
-		};
-
-		let expected = "(* (- 123) (group 45.67))";
-
-		let mut actual = String::new();
-		super::print_ast(&expr, &mut actual).unwrap();
-
-		assert_eq!(expected, actual);
-	}
 }

@@ -87,7 +87,6 @@ impl<'a> Scanner<'a> {
 		tokens.push(Token {
 			token_type: TokenType::Eof,
 			lexeme: "".to_string(),
-			//literal: Box::new(Option::<()>::None),
 			line: self.line,
 		});
 
