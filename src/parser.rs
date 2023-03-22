@@ -18,6 +18,7 @@ pub struct Error {
 pub enum ErrorKind {
 	ExpectedExpression,
 	ExpectedRightParenthesis,
+	ExpectedSemicolon,
 }
 
 impl Display for Error {
@@ -29,6 +30,7 @@ impl Display for Error {
 		match self.kind {
 			ErrorKind::ExpectedExpression => write!(f, "expected expression")?,
 			ErrorKind::ExpectedRightParenthesis => write!(f, "expected `)` after expression")?,
+			ErrorKind::ExpectedSemicolon => write!(f, "expected `;` after statement")?,
 		}
 		match &self.token {
 			None
@@ -51,8 +53,59 @@ impl Parser {
 		}
 	}
 
-	pub fn parse(mut self) -> Result<Expr, Error> {
-		self.expression()
+	pub fn parse(mut self) -> Result<Vec<Stmt>, Error> {
+		let mut statements = Vec::new();
+		while self
+			.tokens
+			.peek()
+			.map(|t| !matches!(t.token_type, TokenType::Eof))
+			.unwrap_or_default()
+		{
+			let statement = self.statement()?;
+			statements.push(statement);
+		}
+		Ok(statements)
+	}
+
+	fn statement(&mut self) -> Result<Stmt, Error> {
+		match self.tokens.peek().map(|t| &t.token_type) {
+			Some(TokenType::Print) => {
+				let _ = self.tokens.next().unwrap();
+				self.print_statement()
+			}
+			_ => self.expression_statement(),
+		}
+	}
+
+	fn print_statement(&mut self) -> Result<Stmt, Error> {
+		let value = self.expression()?;
+		//TODO(aqatl): report token
+		let token = self.tokens.next().ok_or(Error {
+			kind: ErrorKind::ExpectedSemicolon,
+			token: None,
+		})?;
+		if !matches!(token.token_type, TokenType::Semicolon) {
+			return Err(Error {
+				kind: ErrorKind::ExpectedSemicolon,
+				token: None,
+			});
+		}
+		Ok(Stmt::Print(value))
+	}
+
+	fn expression_statement(&mut self) -> Result<Stmt, Error> {
+		let expr = self.expression()?;
+		let token = self.tokens.next().ok_or(Error {
+			kind: ErrorKind::ExpectedSemicolon,
+			token: None,
+		})?;
+		if !matches!(token.token_type, TokenType::Semicolon) {
+			return Err(Error {
+				kind: ErrorKind::ExpectedSemicolon,
+				token: None,
+			});
+		}
+		Ok(Stmt::Expr(expr))
 	}
 
 	fn expression(&mut self) -> Result<Expr, Error> {
@@ -225,6 +278,13 @@ impl Parser {
 	}
 }
 
+pub struct Program(Vec<Stmt>);
+
+pub enum Stmt {
+	Expr(Expr),
+	Print(Expr),
+}
+
 #[derive(Debug)]
 pub enum Expr {
 	Literal(Token),
@@ -271,6 +331,18 @@ fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
 			lexeme,
 			..
 		}) => write!(w, "{lexeme}"),
+		Expr::Literal(Token {
+			token_type: TokenType::True,
+			..
+		}) => write!(w, "true"),
+		Expr::Literal(Token {
+			token_type: TokenType::False,
+			..
+		}) => write!(w, "false"),
+		Expr::Literal(Token {
+			token_type: TokenType::Nil,
+			..
+		}) => write!(w, "nil"),
 		Expr::Literal(l) => panic!("{l:?}"),
 		Expr::Binary {
 			left,

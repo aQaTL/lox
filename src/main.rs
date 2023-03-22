@@ -1,3 +1,6 @@
+#![allow(clippy::result_large_err)]
+#![allow(clippy::large_enum_variant)]
+
 use std::{
 	fmt::Display,
 	io::{self, Write},
@@ -9,6 +12,7 @@ use crate::cli::Args;
 use crate::scanner::Scanner;
 
 mod cli;
+mod interpreter;
 mod parser;
 mod scanner;
 mod token;
@@ -40,7 +44,13 @@ fn main() {
 
 	if let Err(err) = result {
 		eprintln!("Error: {err}");
-		std::process::exit(144);
+		let exit_code = match err {
+			Error::Io(_) => 1,
+			Error::ExecutionError(ExecutionError::GenericError) => 65,
+			Error::ExecutionError(ExecutionError::Parse(_)) => 66,
+			Error::ExecutionError(ExecutionError::Eval(_)) => 70,
+		};
+		std::process::exit(exit_code);
 	}
 }
 
@@ -111,6 +121,7 @@ fn run_file(_args: &Args, script: &Path) -> Result<(), Error> {
 enum ExecutionError {
 	GenericError,
 	Parse(parser::Error),
+	Eval(interpreter::Error),
 }
 
 impl Display for ExecutionError {
@@ -118,6 +129,7 @@ impl Display for ExecutionError {
 		match self {
 			ExecutionError::GenericError => write!(f, "generic error"),
 			ExecutionError::Parse(err) => write!(f, "parse error: {err}"),
+			ExecutionError::Eval(err) => write!(f, "runtime error: {err}"),
 		}
 	}
 }
@@ -127,6 +139,12 @@ impl std::error::Error for ExecutionError {}
 impl From<parser::Error> for ExecutionError {
 	fn from(v: parser::Error) -> Self {
 		ExecutionError::Parse(v)
+	}
+}
+
+impl From<interpreter::Error> for ExecutionError {
+	fn from(v: interpreter::Error) -> Self {
+		ExecutionError::Eval(v)
 	}
 }
 
@@ -147,8 +165,13 @@ fn run(source: &str) -> Result<(), ExecutionError> {
 	for token in &tokens {
 		println!("Token: {token:?}");
 	}
-	let expr = parser::Parser::new(tokens).parse()?;
+	let statements = parser::Parser::new(tokens).parse()?;
+	/*
 	println!("Expr: {expr:#?}");
 	println!("Expr: {expr}");
+	*/
+	let mut interpreter = interpreter::Interpreter {};
+	interpreter.interpret(statements)?;
+	//println!("Result: {value}");
 	Ok(())
 }
