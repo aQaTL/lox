@@ -9,9 +9,11 @@ use std::{
 };
 
 use crate::cli::Args;
+use crate::interpreter::Interpreter;
 use crate::scanner::Scanner;
 
 mod cli;
+mod environment;
 mod interpreter;
 mod parser;
 mod scanner;
@@ -89,6 +91,7 @@ fn run_prompt(_args: &Args) -> Result<(), Error> {
 
 	let mut line = String::new();
 
+	let mut interpreter = Interpreter::default();
 	loop {
 		line.clear();
 		{
@@ -99,7 +102,7 @@ fn run_prompt(_args: &Args) -> Result<(), Error> {
 		if stdin.read_line(&mut line)? == 0 {
 			break;
 		}
-		if let Err(err) = run(&line) {
+		if let Err(err) = run(&mut interpreter, &line) {
 			eprintln!("Error: {err}");
 		}
 		HAD_ERROR.store(false, Ordering::Relaxed);
@@ -110,7 +113,7 @@ fn run_prompt(_args: &Args) -> Result<(), Error> {
 
 fn run_file(_args: &Args, script: &Path) -> Result<(), Error> {
 	let source = std::fs::read_to_string(script)?;
-	run(&source)?;
+	run(&mut Interpreter::default(), &source)?;
 	if HAD_ERROR.load(Ordering::Relaxed) {
 		return Err(ExecutionError::GenericError.into());
 	}
@@ -159,7 +162,7 @@ fn report(line: usize, place: &str, msg: impl Display) {
 	HAD_ERROR.store(true, Ordering::Relaxed);
 }
 
-fn run(source: &str) -> Result<(), ExecutionError> {
+fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), ExecutionError> {
 	let scanner = Scanner::new(source);
 	let tokens = scanner.scan_tokens();
 	for token in &tokens {
@@ -170,7 +173,6 @@ fn run(source: &str) -> Result<(), ExecutionError> {
 	println!("Expr: {expr:#?}");
 	println!("Expr: {expr}");
 	*/
-	let mut interpreter = interpreter::Interpreter {};
 	interpreter.interpret(statements)?;
 	//println!("Result: {value}");
 	Ok(())

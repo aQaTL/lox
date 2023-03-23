@@ -165,7 +165,7 @@ impl<'a> Scanner<'a> {
 				self.keywords
 					.get(text)
 					.cloned()
-					.unwrap_or(TokenType::Identifier)
+					.unwrap_or_else(|| TokenType::Identifier(text.to_string()))
 			}
 
 			_ => return Err(Error::UnexpectedCharacter(b)),

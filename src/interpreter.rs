@@ -1,13 +1,17 @@
 use std::fmt::Display;
 
 use crate::{
+	environment::Environment,
 	parser::{Expr, Stmt},
 	token::{Token, TokenType},
 };
 
-pub struct Interpreter {}
+#[derive(Default)]
+pub struct Interpreter {
+	environment: Environment,
+}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
 	Null,
 	Bool(bool),
@@ -112,6 +116,8 @@ pub enum Error {
 		token: Token,
 	},
 	InvalidBinaryOperator(Token),
+	UnknownVariable(Token),
+	UninitializedVariable(Token),
 }
 
 impl Display for Error {
@@ -162,8 +168,14 @@ impl Display for Error {
 				line,
 			}) => write!(
 				f,
-				"[line {line}] Invalid binary operator {token_type:?} at `{lexeme}`"
+				"[line {line}] invalid binary operator {token_type:?} at `{lexeme}`"
 			),
+			Error::UnknownVariable(Token { lexeme, line, .. }) => {
+				write!(f, "[line {line}] unknown variable `{lexeme}`")
+			}
+			Error::UninitializedVariable(Token { lexeme, line, .. }) => {
+				write!(f, "[line {line}] uninitialized variable `{lexeme}`")
+			}
 		}
 	}
 }
@@ -179,12 +191,18 @@ impl Interpreter {
 				Stmt::Expr(expr) => {
 					self.eval(expr)?;
 				}
+				Stmt::Var { name, initializer } => {
+					let value = match initializer {
+						Some(expr) => Some(self.eval(expr)?),
+						None => None,
+					};
+					self.environment.define(name.lexeme, value);
+				}
 			}
 		}
 		Ok(())
 	}
 
-	#[allow(clippy::only_used_in_recursion)]
 	pub fn eval(&mut self, expr: Expr) -> Result<Value, Error> {
 		match expr {
 			Expr::Literal(Token {
@@ -208,6 +226,11 @@ impl Interpreter {
 				..
 			}) => Ok(Value::Null),
 			Expr::Literal(token) => Err(Error::UnexpectedLiteral(token)),
+			Expr::Variable(token) => match self.environment.get(&token) {
+				Some(Some(v)) => Ok(v.to_owned()),
+				Some(None) => Err(Error::UninitializedVariable(token)),
+				None => Err(Error::UnknownVariable(token)),
+			},
 			Expr::Grouping(expr) => self.eval(*expr),
 			Expr::Unary {
 				operator: token @ Token {

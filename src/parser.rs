@@ -14,11 +14,13 @@ pub struct Error {
 	pub token: Option<Token>,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 pub enum ErrorKind {
 	ExpectedExpression,
 	ExpectedRightParenthesis,
 	ExpectedSemicolon,
+	ExpectedIdentifier,
 }
 
 impl Display for Error {
@@ -31,6 +33,7 @@ impl Display for Error {
 			ErrorKind::ExpectedExpression => write!(f, "expected expression")?,
 			ErrorKind::ExpectedRightParenthesis => write!(f, "expected `)` after expression")?,
 			ErrorKind::ExpectedSemicolon => write!(f, "expected `;` after statement")?,
+			ErrorKind::ExpectedIdentifier => write!(f, "expected identifier")?,
 		}
 		match &self.token {
 			None
@@ -61,10 +64,64 @@ impl Parser {
 			.map(|t| !matches!(t.token_type, TokenType::Eof))
 			.unwrap_or_default()
 		{
-			let statement = self.statement()?;
-			statements.push(statement);
+			//TODO(aqatl): if this fails, we should call [self.synchronize]
+			let declaration = self.declaration()?;
+			statements.push(declaration);
 		}
 		Ok(statements)
+	}
+
+	fn declaration(&mut self) -> Result<Stmt, Error> {
+		match self.tokens.peek() {
+			Some(Token {
+				token_type: TokenType::Var,
+				..
+			}) => {
+				let _ = self.tokens.next().unwrap();
+				self.var_declaration()
+			}
+			_ => self.statement(),
+		}
+	}
+
+	fn var_declaration(&mut self) -> Result<Stmt, Error> {
+		let name = match self.tokens.next() {
+			Some(
+				t @ Token {
+					token_type: TokenType::Identifier(_),
+					..
+				},
+			) => t,
+			t => {
+				return Err(Error {
+					kind: ErrorKind::ExpectedIdentifier,
+					token: t,
+				})
+			}
+		};
+
+		let initializer = match self.tokens.next() {
+			Some(Token {
+				token_type: TokenType::Equal,
+				..
+			}) => Some(self.expression()?),
+			_ => None,
+		};
+
+		match self.tokens.next() {
+			Some(Token {
+				token_type: TokenType::Semicolon,
+				..
+			}) => (),
+			t => {
+				return Err(Error {
+					kind: ErrorKind::ExpectedSemicolon,
+					token: t,
+				})
+			}
+		}
+
+		Ok(Stmt::Var { name, initializer })
 	}
 
 	fn statement(&mut self) -> Result<Stmt, Error> {
@@ -217,6 +274,7 @@ impl Parser {
 		})?;
 
 		match token.token_type {
+			TokenType::Identifier(_) => Ok(Expr::Variable(token)),
 			TokenType::Number(_)
 			| TokenType::String(_)
 			| TokenType::True
@@ -278,16 +336,19 @@ impl Parser {
 	}
 }
 
-pub struct Program(Vec<Stmt>);
-
 pub enum Stmt {
 	Expr(Expr),
 	Print(Expr),
+	Var {
+		name: Token,
+		initializer: Option<Expr>,
+	},
 }
 
 #[derive(Debug)]
 pub enum Expr {
 	Literal(Token),
+	Variable(Token),
 	Unary {
 		operator: Token,
 		expr: Box<Expr>,
@@ -327,10 +388,9 @@ fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
 			..
 		}) => write!(w, "{v}"),
 		Expr::Literal(Token {
-			token_type: TokenType::Identifier,
-			lexeme,
+			token_type: TokenType::Identifier(v),
 			..
-		}) => write!(w, "{lexeme}"),
+		}) => write!(w, "{v}"),
 		Expr::Literal(Token {
 			token_type: TokenType::True,
 			..
@@ -344,6 +404,11 @@ fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
 			..
 		}) => write!(w, "nil"),
 		Expr::Literal(l) => panic!("{l:?}"),
+		Expr::Variable(Token {
+			token_type: TokenType::Identifier(var_name),
+			..
+		}) => write!(w, "{var_name}"),
+		Expr::Variable(v) => panic!("{v:?}"),
 		Expr::Binary {
 			left,
 			operator: Token { lexeme, .. },
