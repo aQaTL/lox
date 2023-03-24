@@ -4,6 +4,8 @@ use crate::{interpreter::Value, token::Token};
 
 #[derive(Default)]
 pub struct Environment {
+	// outer / parent scope
+	enclosing: Option<Box<Environment>>,
 	values: HashMap<String, Option<Value>>,
 }
 
@@ -21,8 +23,17 @@ impl Display for Error {
 }
 
 impl Environment {
+	pub fn new(enclosing: Box<Environment>) -> Self {
+		Environment {
+			enclosing: Some(enclosing),
+			..Default::default()
+		}
+	}
+
 	pub fn get(&self, token: &Token) -> Option<&Option<Value>> {
-		self.values.get(&token.lexeme)
+		self.values
+			.get(&token.lexeme)
+			.or_else(|| self.enclosing.as_ref().and_then(|env| env.get(token)))
 	}
 
 	pub fn define(&mut self, name: String, v: Option<Value>) {
@@ -35,8 +46,20 @@ impl Environment {
 			.get_mut(name)
 			.ok_or_else(|| Error::UndefinedVariable {
 				name: name.to_string(),
-			})?;
-		*var = Some(v);
-		Ok(())
+			});
+		match var {
+			Ok(var) => {
+				*var = Some(v);
+				Ok(())
+			}
+			Err(err) => match self.enclosing {
+				Some(ref mut enclosing) => enclosing.assign(name, v),
+				None => Err(err),
+			},
+		}
+	}
+
+	pub fn into_enclosing(self) -> Option<Box<Environment>> {
+		self.enclosing
 	}
 }

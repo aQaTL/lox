@@ -22,6 +22,7 @@ pub enum ErrorKind {
 	ExpectedSemicolon,
 	ExpectedIdentifier,
 	InvalidAssignmentTarget,
+	ExpectedRightBrace,
 }
 
 impl Display for Error {
@@ -36,6 +37,7 @@ impl Display for Error {
 			ErrorKind::ExpectedSemicolon => write!(f, "expected `;` after statement")?,
 			ErrorKind::ExpectedIdentifier => write!(f, "expected identifier")?,
 			ErrorKind::InvalidAssignmentTarget => write!(f, "invalid assignment target")?,
+			ErrorKind::ExpectedRightBrace => write!(f, "expected `}}` at the end of a block")?,
 		}
 		match &self.token {
 			None
@@ -143,6 +145,10 @@ impl Parser {
 				let _ = self.tokens.next().unwrap();
 				self.print_statement()
 			}
+			Some(TokenType::LeftBrace) => {
+				let _ = self.tokens.next().unwrap();
+				self.block().map(Stmt::Block)
+			}
 			_ => self.expression_statement(),
 		}
 	}
@@ -161,6 +167,41 @@ impl Parser {
 			});
 		}
 		Ok(Stmt::Print(value))
+	}
+
+	fn block(&mut self) -> Result<Vec<Stmt>, Error> {
+		let mut statements = Vec::new();
+
+		loop {
+			match self.tokens.peek() {
+				Some(Token {
+					token_type: TokenType::RightBrace,
+					..
+				})
+				| None => {
+					break;
+				}
+				_ => (),
+			}
+			let statement = self.declaration()?;
+			statements.push(statement);
+		}
+
+		let token = self.tokens.next();
+		if !matches!(
+			token,
+			Some(Token {
+				token_type: TokenType::RightBrace,
+				..
+			})
+		) {
+			return Err(Error {
+				kind: ErrorKind::ExpectedRightBrace,
+				token,
+			});
+		}
+
+		Ok(statements)
 	}
 
 	fn expression_statement(&mut self) -> Result<Stmt, Error> {
@@ -381,6 +422,7 @@ pub enum Stmt {
 		name: Token,
 		initializer: Option<Expr>,
 	},
+	Block(Vec<Stmt>),
 }
 
 #[derive(Debug)]

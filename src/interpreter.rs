@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{borrow::BorrowMut, fmt::Display, rc::Rc};
 
 use crate::{
 	environment::{self, Environment},
@@ -206,9 +206,24 @@ impl Interpreter {
 					};
 					self.environment.define(name.lexeme, value);
 				}
+				Stmt::Block(statements) => {
+					self.interpret_block(statements)?;
+				}
 			}
 		}
 		Ok(())
+	}
+
+	fn interpret_block(&mut self, statements: Vec<Stmt>) -> Result<(), Error> {
+		let fake = Environment::default();
+		let current = std::mem::replace(&mut self.environment, fake);
+		let fake = std::mem::replace(&mut self.environment, Environment::new(Box::new(current)));
+		let result = statements
+			.into_iter()
+			.try_for_each(|statement| self.interpret(vec![statement]));
+		let original = std::mem::replace(&mut self.environment, fake);
+		self.environment = *original.into_enclosing().unwrap();
+		result
 	}
 
 	pub fn eval(&mut self, expr: Expr) -> Result<Value, Error> {
