@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-	environment::Environment,
+	environment::{self, Environment},
 	parser::{Expr, Stmt},
 	token::{Token, TokenType},
 };
@@ -118,6 +118,7 @@ pub enum Error {
 	InvalidBinaryOperator(Token),
 	UnknownVariable(Token),
 	UninitializedVariable(Token),
+	Environment(environment::Error),
 }
 
 impl Display for Error {
@@ -176,7 +177,14 @@ impl Display for Error {
 			Error::UninitializedVariable(Token { lexeme, line, .. }) => {
 				write!(f, "[line {line}] uninitialized variable `{lexeme}`")
 			}
+			Error::Environment(err) => err.fmt(f),
 		}
+	}
+}
+
+impl From<environment::Error> for Error {
+	fn from(v: environment::Error) -> Self {
+		Error::Environment(v)
 	}
 }
 
@@ -231,6 +239,11 @@ impl Interpreter {
 				Some(None) => Err(Error::UninitializedVariable(token)),
 				None => Err(Error::UnknownVariable(token)),
 			},
+			Expr::Assign { name, value } => {
+				let value = self.eval(*value)?;
+				self.environment.assign(&name.lexeme, value.clone())?;
+				Ok(value)
+			}
 			Expr::Grouping(expr) => self.eval(*expr),
 			Expr::Unary {
 				operator: token @ Token {

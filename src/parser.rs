@@ -21,6 +21,7 @@ pub enum ErrorKind {
 	ExpectedRightParenthesis,
 	ExpectedSemicolon,
 	ExpectedIdentifier,
+	InvalidAssignmentTarget,
 }
 
 impl Display for Error {
@@ -34,6 +35,7 @@ impl Display for Error {
 			ErrorKind::ExpectedRightParenthesis => write!(f, "expected `)` after expression")?,
 			ErrorKind::ExpectedSemicolon => write!(f, "expected `;` after statement")?,
 			ErrorKind::ExpectedIdentifier => write!(f, "expected identifier")?,
+			ErrorKind::InvalidAssignmentTarget => write!(f, "invalid assignment target")?,
 		}
 		match &self.token {
 			None
@@ -105,19 +107,30 @@ impl Parser {
 				token_type: TokenType::Equal,
 				..
 			}) => Some(self.expression()?),
-			_ => None,
-		};
-
-		match self.tokens.next() {
 			Some(Token {
 				token_type: TokenType::Semicolon,
 				..
-			}) => (),
-			t => {
+			}) => None,
+			token => {
 				return Err(Error {
 					kind: ErrorKind::ExpectedSemicolon,
-					token: t,
+					token,
 				})
+			}
+		};
+
+		if initializer.is_some() {
+			match self.tokens.next() {
+				Some(Token {
+					token_type: TokenType::Semicolon,
+					..
+				}) => (),
+				t => {
+					return Err(Error {
+						kind: ErrorKind::ExpectedSemicolon,
+						token: t,
+					})
+				}
 			}
 		}
 
@@ -166,7 +179,32 @@ impl Parser {
 	}
 
 	fn expression(&mut self) -> Result<Expr, Error> {
-		self.equality()
+		self.assignment()
+	}
+
+	fn assignment(&mut self) -> Result<Expr, Error> {
+		let expr = self.equality()?;
+
+		if let Some(Token {
+			token_type: TokenType::Equal,
+			..
+		}) = self.tokens.peek()
+		{
+			let equals = self.tokens.next();
+			let value = self.assignment()?;
+			match expr {
+				Expr::Variable(name) => Ok(Expr::Assign {
+					name,
+					value: Box::new(value),
+				}),
+				_ => Err(Error {
+					kind: ErrorKind::InvalidAssignmentTarget,
+					token: equals,
+				}),
+			}
+		} else {
+			Ok(expr)
+		}
 	}
 
 	fn equality(&mut self) -> Result<Expr, Error> {
@@ -349,6 +387,10 @@ pub enum Stmt {
 pub enum Expr {
 	Literal(Token),
 	Variable(Token),
+	Assign {
+		name: Token,
+		value: Box<Expr>,
+	},
 	Unary {
 		operator: Token,
 		expr: Box<Expr>,
@@ -409,6 +451,14 @@ fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
 			..
 		}) => write!(w, "{var_name}"),
 		Expr::Variable(v) => panic!("{v:?}"),
+		Expr::Assign {
+			name: Token {
+				token_type: TokenType::Identifier(name),
+				..
+			},
+			value,
+		} => parenthesize(w, &format!("= {name}"), &[value]),
+		Expr::Assign { name, .. } => panic!("{name:?}"),
 		Expr::Binary {
 			left,
 			operator: Token { lexeme, .. },
