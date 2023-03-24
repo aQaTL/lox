@@ -160,6 +160,10 @@ impl Parser {
 				let _ = self.tokens.next().unwrap();
 				self.print_statement()
 			}
+			Some(TokenType::While) => {
+				let _ = self.tokens.next().unwrap();
+				self.while_statement()
+			}
 			Some(TokenType::LeftBrace) => {
 				let _ = self.tokens.next().unwrap();
 				self.block().map(Stmt::Block)
@@ -226,6 +230,37 @@ impl Parser {
 			});
 		}
 		Ok(Stmt::Print(value))
+	}
+
+	fn while_statement(&mut self) -> Result<Stmt, Error> {
+		expect_token!(
+			self,
+			Token {
+				token_type: TokenType::LeftParen,
+				..
+			}
+		)
+		.map_err(|token| Error {
+			kind: ErrorKind::ExpectedLeftParenthesis,
+			token,
+		})?;
+		let condition = self.expression()?;
+		expect_token!(
+			self,
+			Token {
+				token_type: TokenType::RightParen,
+				..
+			}
+		)
+		.map_err(|token| Error {
+			kind: ErrorKind::ExpectedRightParenthesis,
+			token,
+		})?;
+		let body = self.statement()?;
+		Ok(Stmt::While {
+			condition,
+			body: Box::new(body),
+		})
 	}
 
 	fn block(&mut self) -> Result<Vec<Stmt>, Error> {
@@ -522,6 +557,7 @@ impl Parser {
 	}
 }
 
+#[derive(Clone)]
 pub enum Stmt {
 	Expr(Expr),
 	Print(Expr),
@@ -535,9 +571,13 @@ pub enum Stmt {
 		then_branch: Box<Stmt>,
 		else_branch: Option<Box<Stmt>>,
 	},
+	While {
+		condition: Expr,
+		body: Box<Stmt>,
+	},
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
 	Literal(Token),
 	Variable(Token),

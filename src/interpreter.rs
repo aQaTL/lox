@@ -198,7 +198,7 @@ impl From<environment::Error> for Error {
 }
 
 impl Interpreter {
-	pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), Error> {
+	pub fn interpret(&mut self, statements: impl IntoIterator<Item = Stmt>) -> Result<(), Error> {
 		for statement in statements {
 			match statement {
 				Stmt::Print(expr) => {
@@ -224,9 +224,15 @@ impl Interpreter {
 					else_branch,
 				} => {
 					if self.eval(condition)?.is_truthy() {
-						self.interpret(vec![*then_branch])?;
+						self.interpret(std::iter::once(*then_branch))?;
 					} else if let Some(else_branch) = else_branch {
-						self.interpret(vec![*else_branch])?;
+						self.interpret(std::iter::once(*else_branch))?;
+					}
+				}
+				Stmt::While { condition, body } => {
+					let body = *body;
+					while self.eval(condition.clone())?.is_truthy() {
+						self.interpret(std::iter::once(body.clone()))?;
 					}
 				}
 			}
@@ -380,6 +386,12 @@ impl Interpreter {
 				match (left, right) {
 					(Value::String(s1), Value::String(s2)) => Ok(Value::String(s1 + &s2)),
 					(Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(n1 + n2)),
+					(Value::String(s1), Value::Number(n2)) => {
+						Ok(Value::String(s1 + &n2.to_string()))
+					}
+					(Value::Number(n1), Value::String(s2)) => {
+						Ok(Value::String(format!("{n1}{s2}")))
+					}
 					(left, right) => Err(Error::InvalidPlusOperatorOperands { left, right, token }),
 				}
 			}
