@@ -1,0 +1,14 @@
+var a = 3 * 4;
+var b = 3 * 6;
+
+if (a + b > 10) {
+	print "we're cooking";
+}
+
+
+if (a >= b) {
+	print "this is not supposed to happen";
+} else {
+	print "YES!";
+}
+

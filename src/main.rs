@@ -165,6 +165,7 @@ fn report(line: usize, place: &str, msg: impl Display) {
 fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), ExecutionError> {
 	let scanner = Scanner::new(source);
 	let tokens = scanner.scan_tokens();
+	#[cfg(debug_assertions)]
 	for token in &tokens {
 		println!("Token: {token:?}");
 	}

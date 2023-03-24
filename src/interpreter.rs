@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, fmt::Display, rc::Rc};
+use std::fmt::Display;
 
 use crate::{
 	environment::{self, Environment},
@@ -208,6 +208,17 @@ impl Interpreter {
 				}
 				Stmt::Block(statements) => {
 					self.interpret_block(statements)?;
+				}
+				Stmt::If {
+					condition,
+					then_branch,
+					else_branch,
+				} => {
+					if self.eval(condition)?.is_truthy() {
+						self.interpret(vec![*then_branch])?;
+					} else if let Some(else_branch) = else_branch {
+						self.interpret(vec![*else_branch])?;
+					}
 				}
 			}
 		}

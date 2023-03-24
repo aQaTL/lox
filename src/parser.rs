@@ -23,6 +23,7 @@ pub enum ErrorKind {
 	ExpectedIdentifier,
 	InvalidAssignmentTarget,
 	ExpectedRightBrace,
+	ExpectedLeftParenthesis,
 }
 
 impl Display for Error {
@@ -38,6 +39,7 @@ impl Display for Error {
 			ErrorKind::ExpectedIdentifier => write!(f, "expected identifier")?,
 			ErrorKind::InvalidAssignmentTarget => write!(f, "invalid assignment target")?,
 			ErrorKind::ExpectedRightBrace => write!(f, "expected `}}` at the end of a block")?,
+			ErrorKind::ExpectedLeftParenthesis => write!(f, "expected `(`")?,
 		}
 		match &self.token {
 			None
@@ -52,6 +54,15 @@ impl Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+macro_rules! expect_token {
+	($parser:ident, $pattern:pat) => {{
+		match $parser.tokens.next() {
+			Some(token) if matches!(token, $pattern) => Ok(token),
+			token => Err(token),
+		}
+	}};
+}
 
 impl Parser {
 	pub fn new(tokens: Vec<Token>) -> Self {
@@ -141,6 +152,10 @@ impl Parser {
 
 	fn statement(&mut self) -> Result<Stmt, Error> {
 		match self.tokens.peek().map(|t| &t.token_type) {
+			Some(TokenType::If) => {
+				let _ = self.tokens.next().unwrap();
+				self.if_statement()
+			}
 			Some(TokenType::Print) => {
 				let _ = self.tokens.next().unwrap();
 				self.print_statement()
@@ -151,6 +166,50 @@ impl Parser {
 			}
 			_ => self.expression_statement(),
 		}
+	}
+
+	fn if_statement(&mut self) -> Result<Stmt, Error> {
+		expect_token!(
+			self,
+			Token {
+				token_type: TokenType::LeftParen,
+				..
+			}
+		)
+		.map_err(|token| Error {
+			kind: ErrorKind::ExpectedLeftParenthesis,
+			token,
+		})?;
+		let condition = self.expression()?;
+		expect_token!(
+			self,
+			Token {
+				token_type: TokenType::RightParen,
+				..
+			}
+		)
+		.map_err(|token| Error {
+			kind: ErrorKind::ExpectedRightParenthesis,
+			token,
+		})?;
+
+		let then_branch = Box::new(self.statement()?);
+		let else_branch = match self.tokens.peek() {
+			Some(Token {
+				token_type: TokenType::Else,
+				..
+			}) => {
+				let _ = self.tokens.next();
+				Some(Box::new(self.statement()?))
+			}
+			_ => None,
+		};
+
+		Ok(Stmt::If {
+			condition,
+			then_branch,
+			else_branch,
+		})
 	}
 
 	fn print_statement(&mut self) -> Result<Stmt, Error> {
@@ -423,6 +482,11 @@ pub enum Stmt {
 		initializer: Option<Expr>,
 	},
 	Block(Vec<Stmt>),
+	If {
+		condition: Expr,
+		then_branch: Box<Stmt>,
+		else_branch: Option<Box<Stmt>>,
+	},
 }
 
 #[derive(Debug)]
