@@ -283,28 +283,76 @@ impl Parser {
 	}
 
 	fn assignment(&mut self) -> Result<Expr, Error> {
-		let expr = self.equality()?;
+		let expr = self.or()?;
 
-		if let Some(Token {
-			token_type: TokenType::Equal,
-			..
-		}) = self.tokens.peek()
-		{
-			let equals = self.tokens.next();
-			let value = self.assignment()?;
-			match expr {
-				Expr::Variable(name) => Ok(Expr::Assign {
-					name,
-					value: Box::new(value),
-				}),
-				_ => Err(Error {
-					kind: ErrorKind::InvalidAssignmentTarget,
-					token: equals,
-				}),
+		match self.tokens.peek() {
+			Some(Token {
+				token_type: TokenType::Equal,
+				..
+			}) => {
+				let equals = self.tokens.next();
+				let value = self.assignment()?;
+				match expr {
+					Expr::Variable(name) => Ok(Expr::Assign {
+						name,
+						value: Box::new(value),
+					}),
+					_ => Err(Error {
+						kind: ErrorKind::InvalidAssignmentTarget,
+						token: equals,
+					}),
+				}
 			}
-		} else {
-			Ok(expr)
+			_ => Ok(expr),
 		}
+	}
+
+	fn or(&mut self) -> Result<Expr, Error> {
+		let mut expr = self.and()?;
+
+		loop {
+			match self.tokens.peek() {
+				Some(Token {
+					token_type: TokenType::Or,
+					..
+				}) => {
+					let operator = self.tokens.next().unwrap();
+					let right = self.and()?;
+					expr = Expr::Logical {
+						left: Box::new(expr),
+						operator,
+						right: Box::new(right),
+					};
+				}
+				_ => break,
+			}
+		}
+
+		Ok(expr)
+	}
+
+	fn and(&mut self) -> Result<Expr, Error> {
+		let mut expr = self.equality()?;
+
+		loop {
+			match self.tokens.peek() {
+				Some(Token {
+					token_type: TokenType::And,
+					..
+				}) => {
+					let operator = self.tokens.next().unwrap();
+					let right = self.equality()?;
+					expr = Expr::Logical {
+						left: Box::new(expr),
+						operator,
+						right: Box::new(right),
+					};
+				}
+				_ => break,
+			}
+		}
+
+		Ok(expr)
 	}
 
 	fn equality(&mut self) -> Result<Expr, Error> {
@@ -507,6 +555,11 @@ pub enum Expr {
 		right: Box<Expr>,
 	},
 	Grouping(Box<Expr>),
+	Logical {
+		left: Box<Expr>,
+		operator: Token,
+		right: Box<Expr>,
+	},
 }
 
 impl Display for Expr {
@@ -572,6 +625,11 @@ fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
 		} => parenthesize(w, lexeme, &[left, right]),
 		Expr::Grouping(expr) => parenthesize(w, "group", &[expr]),
 		Expr::Unary { operator, expr } => parenthesize(w, &operator.lexeme, &[expr]),
+		Expr::Logical {
+			left,
+			operator,
+			right,
+		} => parenthesize(w, &operator.lexeme, &[left, right]),
 	}
 }
 

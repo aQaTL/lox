@@ -55,7 +55,7 @@ impl Value {
 impl Display for Value {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match self {
-			Value::Null => write!(f, "null"),
+			Value::Null => write!(f, "nil"),
 			Value::Bool(v) => write!(f, "{v}"),
 			Value::Number(n) => write!(f, "{n}"),
 			Value::String(s) => write!(f, "{s}"),
@@ -119,6 +119,7 @@ pub enum Error {
 	UnknownVariable(Token),
 	UninitializedVariable(Token),
 	Environment(environment::Error),
+	InvalidLogicalOperator(Token),
 }
 
 impl Display for Error {
@@ -169,7 +170,7 @@ impl Display for Error {
 				line,
 			}) => write!(
 				f,
-				"[line {line}] invalid binary operator {token_type:?} at `{lexeme}`"
+				"[line {line}] invalid binary operator `{lexeme}` ({token_type:?})"
 			),
 			Error::UnknownVariable(Token { lexeme, line, .. }) => {
 				write!(f, "[line {line}] unknown variable `{lexeme}`")
@@ -178,6 +179,14 @@ impl Display for Error {
 				write!(f, "[line {line}] uninitialized variable `{lexeme}`")
 			}
 			Error::Environment(err) => err.fmt(f),
+			Error::InvalidLogicalOperator(Token {
+				token_type,
+				lexeme,
+				line,
+			}) => write!(
+				f,
+				"[line {line}] invalid logical operator `{lexeme}` ({token_type:?})"
+			),
 		}
 	}
 }
@@ -495,6 +504,37 @@ impl Interpreter {
 				Ok(Value::Bool(left >= right))
 			}
 			Expr::Binary { operator, .. } => Err(Error::InvalidBinaryOperator(operator)),
+			Expr::Logical {
+				left,
+				operator: Token {
+					token_type: TokenType::Or,
+					..
+				},
+				right,
+			} => {
+				let left = self.eval(*left)?;
+				if left.is_truthy() {
+					Ok(left)
+				} else {
+					self.eval(*right)
+				}
+			}
+			Expr::Logical {
+				left,
+				operator: Token {
+					token_type: TokenType::And,
+					..
+				},
+				right,
+			} => {
+				let left = self.eval(*left)?;
+				if !left.is_truthy() {
+					Ok(left)
+				} else {
+					self.eval(*right)
+				}
+			}
+			Expr::Logical { operator, .. } => Err(Error::InvalidLogicalOperator(operator)),
 		}
 	}
 }
