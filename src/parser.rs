@@ -4,6 +4,57 @@ use std::fmt::Display;
 
 use crate::token::{Token, TokenType};
 
+#[derive(Debug, Clone)]
+pub enum Stmt {
+	Expr(Expr),
+	Print(Expr),
+	Var {
+		name: Token,
+		initializer: Option<Expr>,
+	},
+	Block(Vec<Stmt>),
+	If {
+		condition: Expr,
+		then_branch: Box<Stmt>,
+		else_branch: Option<Box<Stmt>>,
+	},
+	While {
+		condition: Expr,
+		body: Box<Stmt>,
+	},
+}
+
+#[derive(Debug, Clone)]
+pub enum Expr {
+	Literal(Token),
+	Variable(Token),
+	Assign {
+		name: Token,
+		value: Box<Expr>,
+	},
+	Unary {
+		operator: Token,
+		expr: Box<Expr>,
+	},
+	Binary {
+		left: Box<Expr>,
+		operator: Token,
+		right: Box<Expr>,
+	},
+	Grouping(Box<Expr>),
+	Logical {
+		left: Box<Expr>,
+		operator: Token,
+		right: Box<Expr>,
+	},
+}
+
+impl Display for Expr {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		print_ast(self, f)
+	}
+}
+
 pub struct Parser {
 	tokens: std::iter::Peekable<std::vec::IntoIter<Token>>,
 }
@@ -164,6 +215,10 @@ impl Parser {
 				let _ = self.tokens.next().unwrap();
 				self.while_statement()
 			}
+			Some(TokenType::For) => {
+				let _ = self.tokens.next().unwrap();
+				self.for_statement()
+			}
 			Some(TokenType::LeftBrace) => {
 				let _ = self.tokens.next().unwrap();
 				self.block().map(Stmt::Block)
@@ -261,6 +316,106 @@ impl Parser {
 			condition,
 			body: Box::new(body),
 		})
+	}
+
+	fn for_statement(&mut self) -> Result<Stmt, Error> {
+		expect_token!(
+			self,
+			Token {
+				token_type: TokenType::LeftParen,
+				..
+			}
+		)
+		.map_err(|token| Error {
+			kind: ErrorKind::ExpectedLeftParenthesis,
+			token,
+		})?;
+
+		let initializer = match self.tokens.peek() {
+			Some(Token {
+				token_type: TokenType::Semicolon,
+				..
+			}) => {
+				let _ = self.tokens.next();
+				None
+			}
+			Some(Token {
+				token_type: TokenType::Var,
+				..
+			}) => {
+				let _ = self.tokens.next();
+				Some(self.var_declaration()?)
+			}
+			_ => Some(self.expression_statement()?),
+		};
+
+		let condition = match self.tokens.peek() {
+			Some(Token {
+				token_type: TokenType::Semicolon,
+				..
+			}) => None,
+			_ => Some(self.expression()?),
+		};
+
+		expect_token!(
+			self,
+			Token {
+				token_type: TokenType::Semicolon,
+				..
+			}
+		)
+		.map_err(|token| Error {
+			kind: ErrorKind::ExpectedSemicolon,
+			token,
+		})?;
+
+		let increment = match self.tokens.peek() {
+			Some(Token {
+				token_type: TokenType::RightParen,
+				..
+			}) => None,
+			_ => Some(self.expression()?),
+		};
+
+		expect_token!(
+			self,
+			Token {
+				token_type: TokenType::RightParen,
+				..
+			}
+		)
+		.map_err(|token| Error {
+			kind: ErrorKind::ExpectedRightParenthesis,
+			token,
+		})?;
+
+		let mut body = self.statement()?;
+
+		// desugar into while loop
+
+		if let Some(increment) = increment {
+			body = Stmt::Block(vec![body, Stmt::Expr(increment)]);
+		}
+
+		let condition = condition.unwrap_or_else(|| {
+			Expr::Literal(Token {
+				token_type: TokenType::True,
+				lexeme: "".to_string(),
+				line: 1,
+			})
+		});
+
+		if let Some(initializer) = initializer {
+			body = Stmt::Block(vec![
+				initializer,
+				Stmt::While {
+					condition,
+					body: Box::new(body),
+				},
+			]);
+		}
+
+		Ok(body)
 	}
 
 	fn block(&mut self) -> Result<Vec<Stmt>, Error> {
@@ -554,57 +709,6 @@ impl Parser {
 				_ => (),
 			}
 		}
-	}
-}
-
-#[derive(Clone)]
-pub enum Stmt {
-	Expr(Expr),
-	Print(Expr),
-	Var {
-		name: Token,
-		initializer: Option<Expr>,
-	},
-	Block(Vec<Stmt>),
-	If {
-		condition: Expr,
-		then_branch: Box<Stmt>,
-		else_branch: Option<Box<Stmt>>,
-	},
-	While {
-		condition: Expr,
-		body: Box<Stmt>,
-	},
-}
-
-#[derive(Debug, Clone)]
-pub enum Expr {
-	Literal(Token),
-	Variable(Token),
-	Assign {
-		name: Token,
-		value: Box<Expr>,
-	},
-	Unary {
-		operator: Token,
-		expr: Box<Expr>,
-	},
-	Binary {
-		left: Box<Expr>,
-		operator: Token,
-		right: Box<Expr>,
-	},
-	Grouping(Box<Expr>),
-	Logical {
-		left: Box<Expr>,
-		operator: Token,
-		right: Box<Expr>,
-	},
-}
-
-impl Display for Expr {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		print_ast(self, f)
 	}
 }
 

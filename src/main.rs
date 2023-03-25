@@ -171,7 +171,7 @@ fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), ExecutionError
 	}
 	let statements = parser::Parser::new(tokens).parse()?;
 	/*
-	println!("Expr: {expr:#?}");
+	println!("Expr: {statements:#?}");
 	println!("Expr: {expr}");
 	*/
 	interpreter.interpret(statements)?;
