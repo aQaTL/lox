@@ -1,11 +1,11 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{interpreter::Value, token::Token};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Environment {
 	// outer / parent scope
-	enclosing: Option<Box<Environment>>,
+	enclosing: Option<Rc<RefCell<Environment>>>,
 	values: HashMap<String, Option<Value>>,
 }
 
@@ -23,17 +23,19 @@ impl Display for Error {
 }
 
 impl Environment {
-	pub fn new(enclosing: Box<Environment>) -> Self {
+	pub fn new(enclosing: Rc<RefCell<Environment>>) -> Self {
 		Environment {
 			enclosing: Some(enclosing),
 			..Default::default()
 		}
 	}
 
-	pub fn get(&self, token: &Token) -> Option<&Option<Value>> {
-		self.values
-			.get(&token.lexeme)
-			.or_else(|| self.enclosing.as_ref().and_then(|env| env.get(token)))
+	pub fn get(&self, token: &Token) -> Option<Option<Value>> {
+		self.values.get(&token.lexeme).cloned().or_else(|| {
+			self.enclosing
+				.as_ref()
+				.and_then(|env| env.borrow().get(token))
+		})
 	}
 
 	pub fn define(&mut self, name: String, v: Option<Value>) {
@@ -53,13 +55,15 @@ impl Environment {
 				Ok(())
 			}
 			Err(err) => match self.enclosing {
-				Some(ref mut enclosing) => enclosing.assign(name, v),
+				Some(ref enclosing) => enclosing.borrow_mut().assign(name, v),
 				None => Err(err),
 			},
 		}
 	}
 
-	pub fn into_enclosing(self) -> Option<Box<Environment>> {
+	/*
+	pub fn into_enclosing(self) -> Option<Rc<Environment>> {
 		self.enclosing
 	}
+	*/
 }

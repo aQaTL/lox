@@ -14,6 +14,7 @@ use crate::scanner::Scanner;
 
 mod cli;
 mod environment;
+mod globals;
 mod interpreter;
 mod parser;
 mod scanner;
@@ -169,12 +170,12 @@ fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), ExecutionError
 	for token in &tokens {
 		println!("Token: {token:?}");
 	}
+
 	let statements = parser::Parser::new(tokens).parse()?;
-	/*
-	println!("Expr: {statements:#?}");
-	println!("Expr: {expr}");
-	*/
+
+	#[cfg(debug_assertions)]
+	println!("statements: {statements:#?}");
+
 	interpreter.interpret(statements)?;
-	//println!("Result: {value}");
 	Ok(())
 }

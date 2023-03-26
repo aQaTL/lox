@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::{
 	environment::{self, Environment},
@@ -6,9 +6,22 @@ use crate::{
 	token::{Token, TokenType},
 };
 
-#[derive(Default)]
+pub mod function;
+
 pub struct Interpreter {
-	environment: Environment,
+	globals: Rc<RefCell<Environment>>,
+	environment: Rc<RefCell<Environment>>,
+}
+
+impl Default for Interpreter {
+	fn default() -> Self {
+		let globals = Rc::new(RefCell::new(crate::globals::globals()));
+		let environment = Rc::new(RefCell::new(Environment::new(Rc::clone(&globals))));
+		Interpreter {
+			globals,
+			environment,
+		}
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -19,6 +32,7 @@ pub enum Value {
 	String(String),
 	/// TODO(aqatl): objects
 	Object,
+	Function(Rc<dyn function::Callable>),
 }
 
 impl Value {
@@ -29,6 +43,7 @@ impl Value {
 			Value::Number(_) => "Number",
 			Value::String(_) => "String",
 			Value::Object => "Object",
+			Value::Function(_) => "<native fn>",
 		}
 	}
 
@@ -50,6 +65,13 @@ impl Value {
 			_ => false,
 		}
 	}
+
+	fn into_callable(self) -> Option<Rc<dyn function::Callable>> {
+		match self {
+			Value::Function(native_fn) => Some(native_fn),
+			_ => None,
+		}
+	}
 }
 
 impl Display for Value {
@@ -60,6 +82,7 @@ impl Display for Value {
 			Value::Number(n) => write!(f, "{n}"),
 			Value::String(s) => write!(f, "{s}"),
 			Value::Object => write!(f, "{{}}"),
+			Value::Function(_) => todo!(),
 		}
 	}
 }
@@ -120,6 +143,12 @@ pub enum Error {
 	UninitializedVariable(Token),
 	Environment(environment::Error),
 	InvalidLogicalOperator(Token),
+	InvalidFunctionCallee(Token),
+	InvalidNumberOfParameters {
+		expected: usize,
+		got: usize,
+		token: Token,
+	},
 }
 
 impl Display for Error {
@@ -187,6 +216,17 @@ impl Display for Error {
 				f,
 				"[line {line}] invalid logical operator `{lexeme}` ({token_type:?})"
 			),
+			Error::InvalidFunctionCallee(Token { line, .. }) => {
+				write!(f, "[line {line}] can only call functions and classes")
+			}
+			Error::InvalidNumberOfParameters {
+				expected,
+				got,
+				token: Token { line, .. },
+			} => write!(
+				f,
+				"[line {line}] expected {expected} arguments, but got {got}"
+			),
 		}
 	}
 }
@@ -213,10 +253,11 @@ impl Interpreter {
 						Some(expr) => Some(self.eval(expr)?),
 						None => None,
 					};
-					self.environment.define(name.lexeme, value);
+					self.environment.borrow_mut().define(name.lexeme, value);
 				}
 				Stmt::Block(statements) => {
-					self.interpret_block(statements)?;
+					let env = Environment::new(Rc::clone(&self.environment));
+					self.interpret_block(statements, env)?;
 				}
 				Stmt::If {
 					condition,
@@ -235,20 +276,31 @@ impl Interpreter {
 						self.interpret(std::iter::once(body.clone()))?;
 					}
 				}
+				Stmt::Function { name, params, body } => {
+					self.globals.borrow_mut().define(
+						name.lexeme.clone(),
+						Some(Value::Function(Rc::new(function::Function {
+							declaration_name: name,
+							declaration_params: params,
+							declaration_body: body,
+						}))),
+					);
+				}
 			}
 		}
 		Ok(())
 	}
 
-	fn interpret_block(&mut self, statements: Vec<Stmt>) -> Result<(), Error> {
-		let fake = Environment::default();
-		let current = std::mem::replace(&mut self.environment, fake);
-		let fake = std::mem::replace(&mut self.environment, Environment::new(Box::new(current)));
+	pub fn interpret_block(
+		&mut self,
+		statements: Vec<Stmt>,
+		env: Environment,
+	) -> Result<(), Error> {
+		let original = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(env)));
 		let result = statements
 			.into_iter()
 			.try_for_each(|statement| self.interpret(vec![statement]));
-		let original = std::mem::replace(&mut self.environment, fake);
-		self.environment = *original.into_enclosing().unwrap();
+		self.environment = original;
 		result
 	}
 
@@ -275,14 +327,16 @@ impl Interpreter {
 				..
 			}) => Ok(Value::Null),
 			Expr::Literal(token) => Err(Error::UnexpectedLiteral(token)),
-			Expr::Variable(token) => match self.environment.get(&token) {
-				Some(Some(v)) => Ok(v.to_owned()),
+			Expr::Variable(token) => match self.environment.borrow().get(&token) {
+				Some(Some(v)) => Ok(v),
 				Some(None) => Err(Error::UninitializedVariable(token)),
 				None => Err(Error::UnknownVariable(token)),
 			},
 			Expr::Assign { name, value } => {
 				let value = self.eval(*value)?;
-				self.environment.assign(&name.lexeme, value.clone())?;
+				self.environment
+					.borrow_mut()
+					.assign(&name.lexeme, value.clone())?;
 				Ok(value)
 			}
 			Expr::Grouping(expr) => self.eval(*expr),
@@ -547,6 +601,32 @@ impl Interpreter {
 				}
 			}
 			Expr::Logical { operator, .. } => Err(Error::InvalidLogicalOperator(operator)),
+			Expr::Call {
+				callee,
+				closing_parenthesis,
+				arguments,
+			} => {
+				let callee = self.eval(*callee)?;
+
+				let mut evaluted_arguments = Vec::with_capacity(arguments.len());
+				for argument in arguments {
+					evaluted_arguments.push(self.eval(argument)?);
+				}
+
+				let Some(function) = callee.into_callable() else {
+                    return Err(Error::InvalidFunctionCallee(closing_parenthesis));
+                };
+
+				if evaluted_arguments.len() != function.arity() {
+					return Err(Error::InvalidNumberOfParameters {
+						expected: function.arity(),
+						got: evaluted_arguments.len(),
+						token: closing_parenthesis,
+					});
+				}
+
+				function.call(self, evaluted_arguments)
+			}
 		}
 	}
 }

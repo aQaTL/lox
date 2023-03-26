@@ -22,6 +22,11 @@ pub enum Stmt {
 		condition: Expr,
 		body: Box<Stmt>,
 	},
+	Function {
+		name: Token,
+		params: Vec<Token>,
+		body: Vec<Stmt>,
+	},
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +52,11 @@ pub enum Expr {
 		operator: Token,
 		right: Box<Expr>,
 	},
+	Call {
+		callee: Box<Expr>,
+		closing_parenthesis: Token,
+		arguments: Vec<Expr>,
+	},
 }
 
 impl Display for Expr {
@@ -69,12 +79,15 @@ pub struct Error {
 #[derive(Debug)]
 pub enum ErrorKind {
 	ExpectedExpression,
-	ExpectedRightParenthesis,
-	ExpectedSemicolon,
-	ExpectedIdentifier,
-	InvalidAssignmentTarget,
-	ExpectedRightBrace,
 	ExpectedLeftParenthesis,
+	ExpectedRightParenthesis,
+	ExpectedRightBrace,
+	ExpectedLeftBrace,
+	ExpectedSemicolon,
+	ExpectedIdentifier { place: &'static str },
+	InvalidAssignmentTarget,
+	ExceededArgumentsLimit,
+	ExpectedComma,
 }
 
 impl Display for Error {
@@ -87,10 +100,13 @@ impl Display for Error {
 			ErrorKind::ExpectedExpression => write!(f, "expected expression")?,
 			ErrorKind::ExpectedRightParenthesis => write!(f, "expected `)` after expression")?,
 			ErrorKind::ExpectedSemicolon => write!(f, "expected `;` after statement")?,
-			ErrorKind::ExpectedIdentifier => write!(f, "expected identifier")?,
+			ErrorKind::ExpectedIdentifier { place } => write!(f, "expected {place} identifier")?,
 			ErrorKind::InvalidAssignmentTarget => write!(f, "invalid assignment target")?,
+			ErrorKind::ExpectedLeftBrace => write!(f, "expected `{{` at the end of a block")?,
 			ErrorKind::ExpectedRightBrace => write!(f, "expected `}}` at the end of a block")?,
 			ErrorKind::ExpectedLeftParenthesis => write!(f, "expected `(`")?,
+			ErrorKind::ExceededArgumentsLimit => write!(f, "can't have more than 255 arguments")?,
+			ErrorKind::ExpectedComma => write!(f, "expected `,`")?,
 		}
 		match &self.token {
 			None
@@ -106,10 +122,20 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-macro_rules! expect_token {
+macro_rules! expect_token_type {
 	($parser:ident, $pattern:pat) => {{
 		match $parser.tokens.next() {
-			Some(token) if matches!(token, $pattern) => Ok(token),
+			Some(token)
+				if matches!(
+					token,
+					Token {
+						token_type: $pattern,
+						..
+					}
+				) =>
+			{
+				Ok(token)
+			}
 			token => Err(token),
 		}
 	}};
@@ -140,6 +166,13 @@ impl Parser {
 	fn declaration(&mut self) -> Result<Stmt, Error> {
 		match self.tokens.peek() {
 			Some(Token {
+				token_type: TokenType::Fun,
+				..
+			}) => {
+				let _ = self.tokens.next().unwrap();
+				self.function("function")
+			}
+			Some(Token {
 				token_type: TokenType::Var,
 				..
 			}) => {
@@ -160,7 +193,7 @@ impl Parser {
 			) => t,
 			t => {
 				return Err(Error {
-					kind: ErrorKind::ExpectedIdentifier,
+					kind: ErrorKind::ExpectedIdentifier { place: "variable" },
 					token: t,
 				})
 			}
@@ -201,6 +234,74 @@ impl Parser {
 		Ok(Stmt::Var { name, initializer })
 	}
 
+	fn function(&mut self, place: &'static str) -> Result<Stmt, Error> {
+		let name = expect_token_type!(self, TokenType::Identifier(_)).map_err(|token| Error {
+			kind: ErrorKind::ExpectedIdentifier { place },
+			token,
+		})?;
+
+		expect_token_type!(self, TokenType::LeftParen).map_err(|token| Error {
+			kind: ErrorKind::ExpectedLeftParenthesis,
+			token,
+		})?;
+
+		let mut params = Vec::new();
+
+		loop {
+			if params.len() >= 255 {
+				return Err(Error {
+					kind: ErrorKind::ExceededArgumentsLimit,
+					token: params.pop(),
+				});
+			}
+			match self.tokens.next() {
+				Some(Token {
+					token_type: TokenType::RightParen,
+					..
+				}) => break,
+				Some(
+					token @ Token {
+						token_type: TokenType::Identifier(_),
+						..
+					},
+				) => {
+					params.push(token);
+					match self.tokens.next() {
+						Some(Token {
+							token_type: TokenType::Comma,
+							..
+						}) => continue,
+						Some(Token {
+							token_type: TokenType::RightParen,
+							..
+						}) => break,
+						token => {
+							return Err(Error {
+								kind: ErrorKind::ExpectedComma,
+								token,
+							})
+						}
+					}
+				}
+				token => {
+					return Err(Error {
+						kind: ErrorKind::ExpectedIdentifier { place: "parameter" },
+						token,
+					});
+				}
+			}
+		}
+
+		expect_token_type!(self, TokenType::LeftBrace).map_err(|token| Error {
+			kind: ErrorKind::ExpectedLeftBrace,
+			token,
+		})?;
+
+		let body = self.block()?;
+
+		Ok(Stmt::Function { name, params, body })
+	}
+
 	fn statement(&mut self) -> Result<Stmt, Error> {
 		match self.tokens.peek().map(|t| &t.token_type) {
 			Some(TokenType::If) => {
@@ -228,26 +329,12 @@ impl Parser {
 	}
 
 	fn if_statement(&mut self) -> Result<Stmt, Error> {
-		expect_token!(
-			self,
-			Token {
-				token_type: TokenType::LeftParen,
-				..
-			}
-		)
-		.map_err(|token| Error {
+		expect_token_type!(self, TokenType::LeftParen).map_err(|token| Error {
 			kind: ErrorKind::ExpectedLeftParenthesis,
 			token,
 		})?;
 		let condition = self.expression()?;
-		expect_token!(
-			self,
-			Token {
-				token_type: TokenType::RightParen,
-				..
-			}
-		)
-		.map_err(|token| Error {
+		expect_token_type!(self, TokenType::RightParen).map_err(|token| Error {
 			kind: ErrorKind::ExpectedRightParenthesis,
 			token,
 		})?;
@@ -288,26 +375,12 @@ impl Parser {
 	}
 
 	fn while_statement(&mut self) -> Result<Stmt, Error> {
-		expect_token!(
-			self,
-			Token {
-				token_type: TokenType::LeftParen,
-				..
-			}
-		)
-		.map_err(|token| Error {
+		expect_token_type!(self, TokenType::LeftParen).map_err(|token| Error {
 			kind: ErrorKind::ExpectedLeftParenthesis,
 			token,
 		})?;
 		let condition = self.expression()?;
-		expect_token!(
-			self,
-			Token {
-				token_type: TokenType::RightParen,
-				..
-			}
-		)
-		.map_err(|token| Error {
+		expect_token_type!(self, TokenType::RightParen).map_err(|token| Error {
 			kind: ErrorKind::ExpectedRightParenthesis,
 			token,
 		})?;
@@ -319,14 +392,7 @@ impl Parser {
 	}
 
 	fn for_statement(&mut self) -> Result<Stmt, Error> {
-		expect_token!(
-			self,
-			Token {
-				token_type: TokenType::LeftParen,
-				..
-			}
-		)
-		.map_err(|token| Error {
+		expect_token_type!(self, TokenType::LeftParen).map_err(|token| Error {
 			kind: ErrorKind::ExpectedLeftParenthesis,
 			token,
 		})?;
@@ -357,14 +423,7 @@ impl Parser {
 			_ => Some(self.expression()?),
 		};
 
-		expect_token!(
-			self,
-			Token {
-				token_type: TokenType::Semicolon,
-				..
-			}
-		)
-		.map_err(|token| Error {
+		expect_token_type!(self, TokenType::Semicolon).map_err(|token| Error {
 			kind: ErrorKind::ExpectedSemicolon,
 			token,
 		})?;
@@ -377,14 +436,7 @@ impl Parser {
 			_ => Some(self.expression()?),
 		};
 
-		expect_token!(
-			self,
-			Token {
-				token_type: TokenType::RightParen,
-				..
-			}
-		)
-		.map_err(|token| Error {
+		expect_token_type!(self, TokenType::RightParen).map_err(|token| Error {
 			kind: ErrorKind::ExpectedRightParenthesis,
 			token,
 		})?;
@@ -639,8 +691,70 @@ impl Parser {
 					expr: Box::new(self.unary()?),
 				})
 			}
-			_ => self.primary(),
+			_ => self.call(),
 		}
+	}
+
+	fn call(&mut self) -> Result<Expr, Error> {
+		let mut expr = self.primary()?;
+
+		loop {
+			match self.tokens.peek() {
+				Some(Token {
+					token_type: TokenType::LeftParen,
+					..
+				}) => {
+					let _ = self.tokens.next();
+					expr = self.finish_call(expr)?;
+				}
+				_ => break,
+			}
+		}
+
+		Ok(expr)
+	}
+
+	fn finish_call(&mut self, callee: Expr) -> Result<Expr, Error> {
+		let mut arguments = Vec::new();
+
+		if !matches!(
+			self.tokens.peek(),
+			Some(Token {
+				token_type: TokenType::RightParen,
+				..
+			})
+		) {
+			loop {
+				if arguments.len() >= 255 {
+					// In the book, here we only report the error, not throw it
+					return Err(Error {
+						kind: ErrorKind::ExceededArgumentsLimit,
+						token: self.tokens.peek().cloned(),
+					});
+				}
+				arguments.push(self.expression()?);
+				match self.tokens.peek() {
+					Some(Token {
+						token_type: TokenType::Comma,
+						..
+					}) => {
+						let _ = self.tokens.next();
+					}
+					_ => break,
+				}
+			}
+		}
+
+		let closing_parenthesis =
+			expect_token_type!(self, TokenType::RightParen).map_err(|token| Error {
+				kind: ErrorKind::ExpectedRightParenthesis,
+				token,
+			})?;
+		Ok(Expr::Call {
+			callee: Box::new(callee),
+			closing_parenthesis,
+			arguments,
+		})
 	}
 
 	fn primary(&mut self) -> Result<Expr, Error> {
@@ -774,6 +888,7 @@ fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
 			operator,
 			right,
 		} => parenthesize(w, &operator.lexeme, &[left, right]),
+		Expr::Call { .. } => todo!(),
 	}
 }
 

@@ -1,0 +1,7 @@
+fun hello(name, count) {
+	for (var i = 0; i < count; i = i + 1) {
+		print (i + 1) + ". Hello, " + name + "!";
+	}
+}
+
+hello("World", 10);
