@@ -149,6 +149,8 @@ pub enum Error {
 		got: usize,
 		token: Token,
 	},
+
+	ReturnStatement(Value),
 }
 
 impl Display for Error {
@@ -227,6 +229,7 @@ impl Display for Error {
 				f,
 				"[line {line}] expected {expected} arguments, but got {got}"
 			),
+			Error::ReturnStatement(_) => write!(f, "return"),
 		}
 	}
 }
@@ -285,6 +288,13 @@ impl Interpreter {
 							declaration_body: body,
 						}))),
 					);
+				}
+				Stmt::Return {
+					keyword: _keyword,
+					value,
+				} => {
+					let value = self.eval(value)?;
+					return Err(Error::ReturnStatement(value));
 				}
 			}
 		}
@@ -625,7 +635,10 @@ impl Interpreter {
 					});
 				}
 
-				function.call(self, evaluted_arguments)
+				match function.call(self, evaluted_arguments) {
+					Err(Error::ReturnStatement(value)) => Ok(value),
+					result => result,
+				}
 			}
 		}
 	}

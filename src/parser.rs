@@ -27,6 +27,10 @@ pub enum Stmt {
 		params: Vec<Token>,
 		body: Vec<Stmt>,
 	},
+	Return {
+		keyword: Token,
+		value: Expr,
+	},
 }
 
 #[derive(Debug, Clone)]
@@ -324,6 +328,10 @@ impl Parser {
 				let _ = self.tokens.next().unwrap();
 				self.block().map(Stmt::Block)
 			}
+			Some(TokenType::Return) => {
+				let keyword = self.tokens.next().unwrap();
+				self.return_statement(keyword)
+			}
 			_ => self.expression_statement(),
 		}
 	}
@@ -503,6 +511,27 @@ impl Parser {
 		}
 
 		Ok(statements)
+	}
+
+	fn return_statement(&mut self, keyword: Token) -> Result<Stmt, Error> {
+		let value = match self.tokens.peek() {
+			Some(Token {
+				token_type: TokenType::Semicolon,
+				..
+			}) => Expr::Literal(Token {
+				token_type: TokenType::Nil,
+				lexeme: keyword.lexeme.clone(),
+				line: keyword.line,
+			}),
+			_ => self.expression()?,
+		};
+
+		expect_token_type!(self, TokenType::Semicolon).map_err(|token| Error {
+			kind: ErrorKind::ExpectedSemicolon,
+			token,
+		})?;
+
+		Ok(Stmt::Return { keyword, value })
 	}
 
 	fn expression_statement(&mut self) -> Result<Stmt, Error> {
