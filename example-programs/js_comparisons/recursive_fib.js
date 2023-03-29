@@ -1,0 +1,10 @@
+"use strict";
+
+function fib(n) {
+	if (n <= 1) return 1;
+	return fib(n - 2) + fib(n - 1);
+}
+
+for (let i = 0; i < 20; i = i + 1) {
+	console.log(fib(i));
+}
