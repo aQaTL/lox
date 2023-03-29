@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::environment::Environment;
@@ -42,6 +43,8 @@ pub struct Function {
 	pub declaration_name: Token,
 	pub declaration_params: Vec<Token>,
 	pub declaration_body: Vec<Stmt>,
+
+	pub closure: Rc<RefCell<Environment>>,
 }
 
 impl Callable for Function {
@@ -50,9 +53,13 @@ impl Callable for Function {
 	}
 
 	fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value, Error> {
-		let mut env = Environment::new(interpreter.globals.clone());
-		for (param, argument) in self.declaration_params.iter().zip(arguments) {
-			env.define(param.lexeme.clone(), Some(argument))
+		let mut env = Environment::new(Rc::clone(&self.closure));
+		{
+			let env = Rc::get_mut(&mut env).unwrap();
+			let mut env = RefCell::borrow_mut(env);
+			for (param, argument) in self.declaration_params.iter().zip(arguments) {
+				env.define(param.lexeme.clone(), Some(argument))
+			}
 		}
 		interpreter.interpret_block(self.declaration_body.clone(), env)?;
 		Ok(Value::Null)

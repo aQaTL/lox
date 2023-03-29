@@ -16,7 +16,7 @@ pub struct Interpreter {
 impl Default for Interpreter {
 	fn default() -> Self {
 		let globals = Rc::new(RefCell::new(crate::globals::globals()));
-		let environment = Rc::new(RefCell::new(Environment::new(Rc::clone(&globals))));
+		let environment = Environment::new(Rc::clone(&globals));
 		Interpreter {
 			globals,
 			environment,
@@ -259,8 +259,7 @@ impl Interpreter {
 					self.environment.borrow_mut().define(name.lexeme, value);
 				}
 				Stmt::Block(statements) => {
-					let env = Environment::new(Rc::clone(&self.environment));
-					self.interpret_block(statements, env)?;
+					self.interpret_block(statements, Rc::clone(&self.environment))?;
 				}
 				Stmt::If {
 					condition,
@@ -286,6 +285,7 @@ impl Interpreter {
 							declaration_name: name,
 							declaration_params: params,
 							declaration_body: body,
+							closure: Rc::clone(&self.environment),
 						}))),
 					);
 				}
@@ -304,9 +304,9 @@ impl Interpreter {
 	pub fn interpret_block(
 		&mut self,
 		statements: Vec<Stmt>,
-		env: Environment,
+		env: Rc<RefCell<Environment>>,
 	) -> Result<(), Error> {
-		let original = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(env)));
+		let original = std::mem::replace(&mut self.environment, env);
 		let result = statements
 			.into_iter()
 			.try_for_each(|statement| self.interpret(vec![statement]));

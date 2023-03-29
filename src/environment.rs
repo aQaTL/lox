@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{interpreter::Value, token::Token};
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Environment {
 	// outer / parent scope
 	enclosing: Option<Rc<RefCell<Environment>>>,
@@ -23,11 +23,11 @@ impl Display for Error {
 }
 
 impl Environment {
-	pub fn new(enclosing: Rc<RefCell<Environment>>) -> Self {
-		Environment {
+	pub fn new(enclosing: Rc<RefCell<Environment>>) -> Rc<RefCell<Self>> {
+		Rc::new(RefCell::new(Environment {
 			enclosing: Some(enclosing),
 			..Default::default()
-		}
+		}))
 	}
 
 	pub fn get(&self, token: &Token) -> Option<Option<Value>> {
