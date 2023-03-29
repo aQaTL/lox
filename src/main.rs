@@ -86,7 +86,7 @@ impl From<io::Error> for Error {
 	}
 }
 
-fn run_prompt(_args: &Args) -> Result<(), Error> {
+fn run_prompt(args: &Args) -> Result<(), Error> {
 	let stdin = std::io::stdin();
 	let stdout = std::io::stdout();
 
@@ -103,7 +103,7 @@ fn run_prompt(_args: &Args) -> Result<(), Error> {
 		if stdin.read_line(&mut line)? == 0 {
 			break;
 		}
-		if let Err(err) = run(&mut interpreter, &line) {
+		if let Err(err) = run(args, &mut interpreter, &line) {
 			eprintln!("Error: {err}");
 		}
 		HAD_ERROR.store(false, Ordering::Relaxed);
@@ -112,9 +112,9 @@ fn run_prompt(_args: &Args) -> Result<(), Error> {
 	Ok(())
 }
 
-fn run_file(_args: &Args, script: &Path) -> Result<(), Error> {
+fn run_file(args: &Args, script: &Path) -> Result<(), Error> {
 	let source = std::fs::read_to_string(script)?;
-	run(&mut Interpreter::default(), &source)?;
+	run(args, &mut Interpreter::default(), &source)?;
 	if HAD_ERROR.load(Ordering::Relaxed) {
 		return Err(ExecutionError::GenericError.into());
 	}
@@ -163,18 +163,20 @@ fn report(line: usize, place: &str, msg: impl Display) {
 	HAD_ERROR.store(true, Ordering::Relaxed);
 }
 
-fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), ExecutionError> {
+fn run(args: &Args, interpreter: &mut Interpreter, source: &str) -> Result<(), ExecutionError> {
 	let scanner = Scanner::new(source);
 	let tokens = scanner.scan_tokens();
-	#[cfg(debug_assertions)]
-	for token in &tokens {
-		println!("Token: {token:?}");
+	if args.print_ast {
+		for token in &tokens {
+			println!("Token: {token:?}");
+		}
 	}
 
 	let statements = parser::Parser::new(tokens).parse()?;
 
-	#[cfg(debug_assertions)]
-	println!("statements: {statements:#?}");
+	if args.print_ast {
+		println!("statements: {statements:#?}");
+	}
 
 	interpreter.interpret(statements)?;
 	Ok(())
