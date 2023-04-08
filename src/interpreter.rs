@@ -259,7 +259,8 @@ impl Interpreter {
 					self.environment.borrow_mut().define(name.lexeme, value);
 				}
 				Stmt::Block(statements) => {
-					self.interpret_block(statements, Rc::clone(&self.environment))?;
+					let env = Environment::new(Rc::clone(&self.environment));
+					self.interpret_block(statements, env)?;
 				}
 				Stmt::If {
 					condition,
@@ -309,7 +310,7 @@ impl Interpreter {
 		let original = std::mem::replace(&mut self.environment, env);
 		let result = statements
 			.into_iter()
-			.try_for_each(|statement| self.interpret(vec![statement]));
+			.try_for_each(|statement| self.interpret(std::iter::once(statement)));
 		self.environment = original;
 		result
 	}
