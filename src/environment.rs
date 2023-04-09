@@ -38,11 +38,11 @@ impl Environment {
 		})
 	}
 
-	pub fn get_at(this: Rc<RefCell<Self>>, token: &Token, distance: i32) -> Value {
+	pub fn get_at(this: Rc<RefCell<Self>>, name: &str, distance: i32) -> Value {
 		Environment::ancestor(this, distance)
 			.borrow()
 			.values
-			.get(&token.lexeme)
+			.get(name)
 			.unwrap()
 			.clone()
 			.unwrap()

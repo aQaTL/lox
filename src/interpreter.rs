@@ -162,7 +162,6 @@ pub enum Error {
 		got: usize,
 		token: Token,
 	},
-	ReturnStatement(Value),
 	InvalidPropertyAccessTarget {
 		token: Token,
 		target_type: String,
@@ -170,6 +169,8 @@ pub enum Error {
 	UndefinedProperty {
 		name: Token,
 	},
+
+	ReturnStatement(Value),
 }
 
 impl Display for Error {
@@ -252,7 +253,6 @@ impl Display for Error {
 				f,
 				"[line {line}] expected {expected} arguments, but got {got}"
 			),
-			Error::ReturnStatement(_) => write!(f, "return"),
 			Error::InvalidPropertyAccessTarget {
 				token: Token { line, .. },
 				target_type,
@@ -264,6 +264,8 @@ impl Display for Error {
 			} => {
 				write!(f, "[line {line}] undefined property {lexeme}")
 			}
+
+			Error::ReturnStatement(_) => write!(f, "return"),
 		}
 	}
 }
@@ -322,6 +324,7 @@ impl Interpreter {
 							declaration_params: params,
 							declaration_body: body,
 							closure: Rc::clone(&self.environment),
+							is_initializer: false,
 						}))),
 					);
 				}
@@ -344,6 +347,7 @@ impl Interpreter {
 							declaration_params: params,
 							declaration_body: body,
 							closure: Rc::clone(&self.environment),
+							is_initializer: name.lexeme == "init",
 						};
 						class_methods.insert(name.lexeme, function);
 					}
@@ -752,7 +756,7 @@ impl Interpreter {
 		match self.locals.get(&expr) {
 			Some(distance) => Ok(Environment::get_at(
 				Rc::clone(&self.environment),
-				&name,
+				&name.lexeme,
 				*distance,
 			)),
 			None => match self.globals.borrow().get(&name) {

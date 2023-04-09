@@ -22,6 +22,7 @@ enum FunctionType {
 	None,
 	Function,
 	Method,
+	Initializer,
 }
 
 #[derive(Copy, Clone)]
@@ -36,6 +37,7 @@ pub enum Error {
 	VariableAlreadyExists(Token),
 	ReturnFromGlobalScope(Token),
 	ThisKeywordOutsideClass(Token),
+	ReturnValueFromInitializer(Token),
 }
 
 impl Display for Error {
@@ -52,6 +54,9 @@ impl Display for Error {
 			}
 			Error::ThisKeywordOutsideClass(Token { line, .. }) => {
 				write!(f, "[line {line}] Can't use `this` outside of a class.")
+			}
+			Error::ReturnValueFromInitializer(Token { line, .. }) => {
+				write!(f, "[line {line}] Can't return a value from an initializer.")
 			}
 		}
 	}
@@ -121,6 +126,10 @@ impl<'a> Resolver<'a> {
 							..
 						})
 					) {
+						if let FunctionType::Initializer = self.current_function {
+							return Err(Error::ReturnValueFromInitializer(keyword));
+						}
+
 						self.resolve_expr(value)?;
 					}
 				}
@@ -139,7 +148,12 @@ impl<'a> Resolver<'a> {
 						.insert("this".to_string(), InitializerResolving::Finished);
 
 					for method in methods {
-						self.resolve_function(method, FunctionType::Method)?;
+						let kind = if method.name.lexeme == "init" {
+							FunctionType::Initializer
+						} else {
+							FunctionType::Method
+						};
+						self.resolve_function(method, kind)?;
 					}
 
 					self.end_scope();

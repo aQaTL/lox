@@ -1,0 +1,31 @@
+class Foo {
+	init() {
+		this.name = "bar";
+		this.len = 143;
+		this.initialized = true;
+		return;
+		this.len = -5;
+	}
+
+	printState() {
+		print "Foo.name: " + this.name;
+		print "Foo.len: " + this.len;
+		if (this.initialized) {
+			print "Foo thinks it's initialized";
+		} else {
+			print "Foo doesn't know what to think";
+		}
+	}
+}
+
+var foo = Foo();
+foo.printState();
+
+foo.initialized = false;
+print "";
+foo.printState();
+
+var fooInstance = foo.init();
+print "";
+foo.len = foo.len / 2;
+fooInstance.printState();

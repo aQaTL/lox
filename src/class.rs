@@ -24,17 +24,26 @@ impl Class {
 
 impl Callable for Class {
 	fn arity(&self) -> usize {
-		0
+		match self.0.find_method("init") {
+			Some(initializer) => initializer.arity(),
+			None => 0,
+		}
 	}
 
 	fn type_name(&self) -> String {
 		self.to_string()
 	}
 
-	fn call(&self, _interpreter: &mut Interpreter, _arguments: Vec<Value>) -> Result<Value, Error> {
-		Ok(Value::Instance(Rc::new(RefCell::new(Instance::new(
-			self.clone(),
-		)))))
+	fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value, Error> {
+		let instance = Rc::new(RefCell::new(Instance::new(self.clone())));
+
+		if let Some(initializer) = self.0.find_method("init") {
+			initializer
+				.bind(Rc::clone(&instance))
+				.call(interpreter, arguments)?;
+		}
+
+		Ok(Value::Instance(instance))
 	}
 }
 

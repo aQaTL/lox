@@ -51,6 +51,8 @@ pub struct Function {
 	pub declaration_body: Vec<Stmt>,
 
 	pub closure: Rc<RefCell<Environment>>,
+
+	pub is_initializer: bool,
 }
 
 impl Callable for Function {
@@ -71,7 +73,17 @@ impl Callable for Function {
 				env.define(param.lexeme.clone(), Some(argument))
 			}
 		}
-		interpreter.interpret_block(self.declaration_body.clone(), env)?;
+		let result = interpreter.interpret_block(self.declaration_body.clone(), env);
+		match result {
+			Ok(()) => (),
+			Err(Error::ReturnStatement(_)) if self.is_initializer => {
+				return Ok(Environment::get_at(Rc::clone(&self.closure), "this", 0));
+			}
+			Err(err) => return Err(err),
+		}
+		if self.is_initializer {
+			return Ok(Environment::get_at(Rc::clone(&self.closure), "this", 0));
+		}
 		Ok(Value::Null)
 	}
 }
