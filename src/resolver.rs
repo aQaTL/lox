@@ -110,6 +110,13 @@ impl<'a> Resolver<'a> {
 						self.resolve_expr(value)?;
 					}
 				}
+				Stmt::Class {
+					name,
+					methods: _methods,
+				} => {
+					self.declare(name.clone())?;
+					self.define(name);
+				}
 			}
 		}
 		Ok(())

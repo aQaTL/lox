@@ -31,6 +31,10 @@ pub enum Stmt {
 		keyword: Token,
 		value: Expr,
 	},
+	Class {
+		name: Token,
+		methods: Vec<Stmt>,
+	},
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -183,6 +187,13 @@ impl Parser {
 				let _ = self.tokens.next().unwrap();
 				self.var_declaration()
 			}
+			Some(Token {
+				token_type: TokenType::Class,
+				..
+			}) => {
+				let _ = self.tokens.next().unwrap();
+				self.class_declaration()
+			}
 			_ => self.statement(),
 		}
 	}
@@ -236,6 +247,39 @@ impl Parser {
 		}
 
 		Ok(Stmt::Var { name, initializer })
+	}
+
+	fn class_declaration(&mut self) -> Result<Stmt, Error> {
+		let name = expect_token_type!(self, TokenType::Identifier(_)).map_err(|token| Error {
+			kind: ErrorKind::ExpectedIdentifier { place: "class" },
+			token,
+		})?;
+
+		expect_token_type!(self, TokenType::LeftBrace).map_err(|token| Error {
+			kind: ErrorKind::ExpectedLeftBrace,
+			token,
+		})?;
+
+		let mut methods = Vec::new();
+
+		loop {
+			if let Some(Token {
+				token_type: TokenType::RightBrace | TokenType::Eof,
+				..
+			})
+			| None = self.tokens.peek()
+			{
+				break;
+			}
+			methods.push(self.function("method")?);
+		}
+
+		expect_token_type!(self, TokenType::RightBrace).map_err(|token| Error {
+			kind: ErrorKind::ExpectedRightBrace,
+			token,
+		})?;
+
+		Ok(Stmt::Class { name, methods })
 	}
 
 	fn function(&mut self, place: &'static str) -> Result<Stmt, Error> {

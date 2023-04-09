@@ -8,6 +8,7 @@ use crate::token::Token;
 
 pub trait Callable: std::fmt::Debug {
 	fn arity(&self) -> usize;
+	fn type_name(&self) -> String;
 	fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value, Error>;
 }
 
@@ -33,6 +34,10 @@ impl Callable for NativeFunction {
 		self.arity
 	}
 
+	fn type_name(&self) -> String {
+		String::from("<native fn>")
+	}
+
 	fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value, Error> {
 		(self.callable)(interpreter, arguments)
 	}
@@ -50,6 +55,10 @@ pub struct Function {
 impl Callable for Function {
 	fn arity(&self) -> usize {
 		self.declaration_params.len()
+	}
+
+	fn type_name(&self) -> String {
+		self.declaration_name.lexeme.clone()
 	}
 
 	fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value, Error> {

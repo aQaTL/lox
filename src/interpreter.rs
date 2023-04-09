@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::{
+	class::Class,
 	environment::{self, Environment},
 	parser::{Expr, Stmt},
 	token::{Token, TokenType},
@@ -33,20 +34,19 @@ pub enum Value {
 	Bool(bool),
 	Number(f64),
 	String(String),
-	/// TODO(aqatl): objects
-	Object,
+	Class(Class),
 	Function(Rc<dyn function::Callable>),
 }
 
 impl Value {
-	fn type_name(&self) -> &'static str {
+	fn type_name(&self) -> String {
 		match self {
-			Value::Null => "Null",
-			Value::Bool(_) => "Bool",
-			Value::Number(_) => "Number",
-			Value::String(_) => "String",
-			Value::Object => "Object",
-			Value::Function(_) => "<native fn>",
+			Value::Null => "Null".to_string(),
+			Value::Bool(_) => "Bool".to_string(),
+			Value::Number(_) => "Number".to_string(),
+			Value::String(_) => "String".to_string(),
+			Value::Class(class) => class.to_string(),
+			Value::Function(callable) => callable.type_name(),
 		}
 	}
 
@@ -64,7 +64,8 @@ impl Value {
 			(Value::Bool(a), Value::Bool(b)) => a == b,
 			(Value::Number(a), Value::Number(b)) => a == b,
 			(Value::String(a), Value::String(b)) => a == b,
-			(Value::Object, Value::Object) => true,
+			//TODO compare classes
+			(Value::Class(_), Value::Class(_)) => true,
 			_ => false,
 		}
 	}
@@ -84,7 +85,7 @@ impl Display for Value {
 			Value::Bool(v) => write!(f, "{v}"),
 			Value::Number(n) => write!(f, "{n}"),
 			Value::String(s) => write!(f, "{s}"),
-			Value::Object => write!(f, "{{}}"),
+			Value::Class(class) => write!(f, "{class}"),
 			Value::Function(_) => todo!(),
 		}
 	}
@@ -304,6 +305,18 @@ impl Interpreter {
 				} => {
 					let value = self.eval(value)?;
 					return Err(Error::ReturnStatement(value));
+				}
+				Stmt::Class {
+					name,
+					methods: _methods,
+				} => {
+					self.environment
+						.borrow_mut()
+						.define(name.lexeme.clone(), None);
+					let name_lexeme = name.lexeme.clone();
+					self.environment
+						.borrow_mut()
+						.assign(&name_lexeme, Value::Class(Class { name }))?;
 				}
 			}
 		}

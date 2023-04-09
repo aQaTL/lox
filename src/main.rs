@@ -13,6 +13,7 @@ use crate::interpreter::Interpreter;
 use crate::resolver::Resolver;
 use crate::scanner::Scanner;
 
+mod class;
 mod cli;
 mod environment;
 mod globals;
