@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::{
-	class::Class,
+	class::{self, Class},
 	environment::{self, Environment},
 	parser::{Expr, Stmt},
 	token::{Token, TokenType},
@@ -34,8 +34,8 @@ pub enum Value {
 	Bool(bool),
 	Number(f64),
 	String(String),
-	Class(Class),
 	Function(Rc<dyn function::Callable>),
+	Object(class::Instance),
 }
 
 impl Value {
@@ -45,8 +45,8 @@ impl Value {
 			Value::Bool(_) => "Bool".to_string(),
 			Value::Number(_) => "Number".to_string(),
 			Value::String(_) => "String".to_string(),
-			Value::Class(class) => class.to_string(),
 			Value::Function(callable) => callable.type_name(),
+			Value::Object(class) => class.to_string(),
 		}
 	}
 
@@ -65,7 +65,7 @@ impl Value {
 			(Value::Number(a), Value::Number(b)) => a == b,
 			(Value::String(a), Value::String(b)) => a == b,
 			//TODO compare classes
-			(Value::Class(_), Value::Class(_)) => true,
+			(Value::Object(_), Value::Object(_)) => true,
 			_ => false,
 		}
 	}
@@ -85,7 +85,7 @@ impl Display for Value {
 			Value::Bool(v) => write!(f, "{v}"),
 			Value::Number(n) => write!(f, "{n}"),
 			Value::String(s) => write!(f, "{s}"),
-			Value::Class(class) => write!(f, "{class}"),
+			Value::Object(class) => write!(f, "{class}"),
 			Value::Function(_) => todo!(),
 		}
 	}
@@ -316,7 +316,7 @@ impl Interpreter {
 					let name_lexeme = name.lexeme.clone();
 					self.environment
 						.borrow_mut()
-						.assign(&name_lexeme, Value::Class(Class { name }))?;
+						.assign(&name_lexeme, Value::Function(Rc::new(Class { name })))?;
 				}
 			}
 		}
