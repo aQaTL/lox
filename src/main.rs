@@ -10,6 +10,7 @@ use std::{
 
 use crate::cli::Args;
 use crate::interpreter::Interpreter;
+use crate::resolver::Resolver;
 use crate::scanner::Scanner;
 
 mod cli;
@@ -17,6 +18,7 @@ mod environment;
 mod globals;
 mod interpreter;
 mod parser;
+mod resolver;
 mod scanner;
 mod token;
 
@@ -51,6 +53,7 @@ fn main() {
 			Error::Io(_) => 1,
 			Error::ExecutionError(ExecutionError::GenericError) => 65,
 			Error::ExecutionError(ExecutionError::Parse(_)) => 66,
+			Error::ExecutionError(ExecutionError::Resolve(_)) => 67,
 			Error::ExecutionError(ExecutionError::Eval(_)) => 70,
 		};
 		std::process::exit(exit_code);
@@ -125,6 +128,7 @@ fn run_file(args: &Args, script: &Path) -> Result<(), Error> {
 enum ExecutionError {
 	GenericError,
 	Parse(parser::Error),
+	Resolve(resolver::Error),
 	Eval(interpreter::Error),
 }
 
@@ -133,6 +137,7 @@ impl Display for ExecutionError {
 		match self {
 			ExecutionError::GenericError => write!(f, "generic error"),
 			ExecutionError::Parse(err) => write!(f, "parse error: {err}"),
+			ExecutionError::Resolve(err) => write!(f, "resolve error: {err}"),
 			ExecutionError::Eval(err) => write!(f, "runtime error: {err}"),
 		}
 	}
@@ -143,6 +148,12 @@ impl std::error::Error for ExecutionError {}
 impl From<parser::Error> for ExecutionError {
 	fn from(v: parser::Error) -> Self {
 		ExecutionError::Parse(v)
+	}
+}
+
+impl From<resolver::Error> for ExecutionError {
+	fn from(v: resolver::Error) -> Self {
+		ExecutionError::Resolve(v)
 	}
 }
 
@@ -177,6 +188,9 @@ fn run(args: &Args, interpreter: &mut Interpreter, source: &str) -> Result<(), E
 	if args.print_ast {
 		println!("statements: {statements:#?}");
 	}
+
+	let mut resolver = Resolver::new(interpreter);
+	resolver.resolve_statements(statements.clone())?;
 
 	interpreter.interpret(statements)?;
 	Ok(())

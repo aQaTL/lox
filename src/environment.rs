@@ -38,6 +38,29 @@ impl Environment {
 		})
 	}
 
+	pub fn get_at(this: Rc<RefCell<Self>>, token: &Token, distance: i32) -> Value {
+		Environment::ancestor(this, distance)
+			.borrow()
+			.values
+			.get(&token.lexeme)
+			.unwrap()
+			.clone()
+			.unwrap()
+	}
+
+	fn ancestor(this: Rc<RefCell<Self>>, distance: i32) -> Rc<RefCell<Environment>> {
+		let mut env: Rc<RefCell<Environment>> = this;
+		for _ in 0..distance {
+			let enclosing = env
+				.borrow()
+				.enclosing
+				.clone()
+				.expect("Ancestor env is None");
+			env = enclosing;
+		}
+		env
+	}
+
 	pub fn define(&mut self, name: String, v: Option<Value>) {
 		self.values.insert(name, v);
 	}
@@ -61,9 +84,17 @@ impl Environment {
 		}
 	}
 
-	/*
-	pub fn into_enclosing(self) -> Option<Rc<Environment>> {
-		self.enclosing
+	pub fn assign_at(
+		this: Rc<RefCell<Self>>,
+		distance: i32,
+		name: &str,
+		v: Value,
+	) -> Result<(), Error> {
+		*Environment::ancestor(this, distance)
+			.borrow_mut()
+			.values
+			.get_mut(name)
+			.expect("Undefined variable") = Some(v);
+		Ok(())
 	}
-	*/
 }

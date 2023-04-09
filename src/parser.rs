@@ -2,7 +2,7 @@
 
 use std::fmt::Display;
 
-use crate::token::{Token, TokenType};
+use crate::token::{next_universal_index, Token, TokenType};
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
@@ -33,7 +33,7 @@ pub enum Stmt {
 	},
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Expr {
 	Literal(Token),
 	Variable(Token),
@@ -462,6 +462,7 @@ impl Parser {
 				token_type: TokenType::True,
 				lexeme: "".to_string(),
 				line: 1,
+				universal_index: next_universal_index(),
 			})
 		});
 
@@ -522,6 +523,7 @@ impl Parser {
 				token_type: TokenType::Nil,
 				lexeme: keyword.lexeme.clone(),
 				line: keyword.line,
+				universal_index: next_universal_index(),
 			}),
 			_ => self.expression()?,
 		};
@@ -934,22 +936,26 @@ mod tests {
 					token_type: TokenType::Minus,
 					lexeme: "-".to_string(),
 					line: 1,
+					universal_index: 0,
 				},
 				expr: Box::new(Expr::Literal(Token {
 					token_type: TokenType::Number(123.0),
 					lexeme: "123".to_string(),
 					line: 1,
+					universal_index: 1,
 				})),
 			}),
 			operator: Token {
 				token_type: TokenType::Star,
 				lexeme: "*".to_string(),
 				line: 1,
+				universal_index: 2,
 			},
 			right: Box::new(Expr::Grouping(Box::new(Expr::Literal(Token {
 				token_type: TokenType::Number(45.67),
 				lexeme: "45.67".to_string(),
 				line: 1,
+				universal_index: 3,
 			})))),
 		};
 

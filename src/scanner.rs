@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::token::{Token, TokenType};
+use crate::token::{next_universal_index, Token, TokenType};
 
 pub struct Scanner<'a> {
 	source: &'a str,
@@ -88,6 +88,7 @@ impl<'a> Scanner<'a> {
 			token_type: TokenType::Eof,
 			lexeme: "".to_string(),
 			line: self.line,
+			universal_index: next_universal_index(),
 		});
 
 		tokens
@@ -175,6 +176,7 @@ impl<'a> Scanner<'a> {
 			lexeme: self.source[self.start..self.current].to_string(),
 			//literal: Box::new(Option::<()>::None),
 			line: self.line,
+			universal_index: next_universal_index(),
 		})
 	}
 

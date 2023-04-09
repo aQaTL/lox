@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::{
@@ -11,15 +12,17 @@ pub mod function;
 pub struct Interpreter {
 	globals: Rc<RefCell<Environment>>,
 	environment: Rc<RefCell<Environment>>,
+	locals: HashMap<Expr, i32>,
 }
 
 impl Default for Interpreter {
 	fn default() -> Self {
 		let globals = Rc::new(RefCell::new(crate::globals::globals()));
-		let environment = Environment::new(Rc::clone(&globals));
+		let environment = Rc::clone(&globals);
 		Interpreter {
 			globals,
 			environment,
+			locals: HashMap::default(),
 		}
 	}
 }
@@ -68,7 +71,7 @@ impl Value {
 
 	fn into_callable(self) -> Option<Rc<dyn function::Callable>> {
 		match self {
-			Value::Function(native_fn) => Some(native_fn),
+			Value::Function(callable) => Some(callable),
 			_ => None,
 		}
 	}
@@ -160,6 +163,7 @@ impl Display for Error {
 				token_type,
 				lexeme,
 				line,
+				..
 			}) => {
 				write!(f, "[line {line}] unexpeted {token_type:?} `{lexeme}`")
 			}
@@ -167,6 +171,7 @@ impl Display for Error {
 				token_type,
 				lexeme,
 				line,
+				..
 			}) => {
 				write!(
 					f,
@@ -199,6 +204,7 @@ impl Display for Error {
 				token_type,
 				lexeme,
 				line,
+				..
 			}) => write!(
 				f,
 				"[line {line}] invalid binary operator `{lexeme}` ({token_type:?})"
@@ -214,6 +220,7 @@ impl Display for Error {
 				token_type,
 				lexeme,
 				line,
+				..
 			}) => write!(
 				f,
 				"[line {line}] invalid logical operator `{lexeme}` ({token_type:?})"
@@ -260,6 +267,7 @@ impl Interpreter {
 				}
 				Stmt::Block(statements) => {
 					let env = Environment::new(Rc::clone(&self.environment));
+					// println!("new block, new env {env:?}");
 					self.interpret_block(statements, env)?;
 				}
 				Stmt::If {
@@ -280,7 +288,7 @@ impl Interpreter {
 					}
 				}
 				Stmt::Function { name, params, body } => {
-					self.globals.borrow_mut().define(
+					self.environment.borrow_mut().define(
 						name.lexeme.clone(),
 						Some(Value::Function(Rc::new(function::Function {
 							declaration_name: name,
@@ -338,16 +346,28 @@ impl Interpreter {
 				..
 			}) => Ok(Value::Null),
 			Expr::Literal(token) => Err(Error::UnexpectedLiteral(token)),
-			Expr::Variable(token) => match self.environment.borrow().get(&token) {
-				Some(Some(v)) => Ok(v),
-				Some(None) => Err(Error::UninitializedVariable(token)),
-				None => Err(Error::UnknownVariable(token)),
-			},
-			Expr::Assign { name, value } => {
-				let value = self.eval(*value)?;
-				self.environment
-					.borrow_mut()
-					.assign(&name.lexeme, value.clone())?;
+			Expr::Variable(ref token) => self.look_up_variable(token.clone(), expr),
+			ref expr @ Expr::Assign {
+				ref name,
+				ref value,
+			} => {
+				let value = self.eval(*value.clone())?;
+
+				match self.locals.get(expr) {
+					Some(distance) => {
+						Environment::assign_at(
+							Rc::clone(&self.environment),
+							*distance,
+							&name.lexeme,
+							value.clone(),
+						)?;
+					}
+					None => {
+						self.globals
+							.borrow_mut()
+							.assign(&name.lexeme, value.clone())?;
+					}
+				}
 				Ok(value)
 			}
 			Expr::Grouping(expr) => self.eval(*expr),
@@ -642,5 +662,24 @@ impl Interpreter {
 				}
 			}
 		}
+	}
+
+	pub fn look_up_variable(&mut self, name: Token, expr: Expr) -> Result<Value, Error> {
+		match self.locals.get(&expr) {
+			Some(distance) => Ok(Environment::get_at(
+				Rc::clone(&self.environment),
+				&name,
+				*distance,
+			)),
+			None => match self.globals.borrow().get(&name) {
+				Some(Some(v)) => Ok(v),
+				Some(None) => Err(Error::UninitializedVariable(name)),
+				None => Err(Error::UnknownVariable(name)),
+			},
+		}
+	}
+
+	pub fn resolve(&mut self, expr: Expr, depth: i32) {
+		self.locals.insert(expr, depth);
 	}
 }
