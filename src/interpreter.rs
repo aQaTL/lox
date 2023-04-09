@@ -35,7 +35,7 @@ pub enum Value {
 	Number(f64),
 	String(String),
 	Function(Rc<dyn function::Callable>),
-	Object(class::Instance),
+	Instance(Rc<RefCell<class::Instance>>),
 }
 
 impl Value {
@@ -46,7 +46,7 @@ impl Value {
 			Value::Number(_) => "Number".to_string(),
 			Value::String(_) => "String".to_string(),
 			Value::Function(callable) => callable.type_name(),
-			Value::Object(class) => class.to_string(),
+			Value::Instance(class) => class.borrow().to_string(),
 		}
 	}
 
@@ -65,7 +65,7 @@ impl Value {
 			(Value::Number(a), Value::Number(b)) => a == b,
 			(Value::String(a), Value::String(b)) => a == b,
 			//TODO compare classes
-			(Value::Object(_), Value::Object(_)) => true,
+			(Value::Instance(_), Value::Instance(_)) => true,
 			_ => false,
 		}
 	}
@@ -74,6 +74,13 @@ impl Value {
 		match self {
 			Value::Function(callable) => Some(callable),
 			_ => None,
+		}
+	}
+
+	fn into_instance(self) -> Result<Rc<RefCell<class::Instance>>, Self> {
+		match self {
+			Value::Instance(instance) => Ok(instance),
+			_ => Err(self),
 		}
 	}
 }
@@ -85,7 +92,7 @@ impl Display for Value {
 			Value::Bool(v) => write!(f, "{v}"),
 			Value::Number(n) => write!(f, "{n}"),
 			Value::String(s) => write!(f, "{s}"),
-			Value::Object(class) => write!(f, "{class}"),
+			Value::Instance(class) => write!(f, "{}", class.borrow()),
 			Value::Function(_) => todo!(),
 		}
 	}
@@ -153,8 +160,14 @@ pub enum Error {
 		got: usize,
 		token: Token,
 	},
-
 	ReturnStatement(Value),
+	InvalidPropertyAccessTarget {
+		token: Token,
+		target_type: String,
+	},
+	UndefinedProperty {
+		name: Token,
+	},
 }
 
 impl Display for Error {
@@ -238,6 +251,17 @@ impl Display for Error {
 				"[line {line}] expected {expected} arguments, but got {got}"
 			),
 			Error::ReturnStatement(_) => write!(f, "return"),
+			Error::InvalidPropertyAccessTarget {
+				token: Token { line, .. },
+				target_type,
+			} => {
+				write!(f, "[line {line}] only instances have properties; tried to access property of {target_type}")
+			}
+			Error::UndefinedProperty {
+				name: Token { lexeme, line, .. },
+			} => {
+				write!(f, "[line {line}] undefined property {lexeme}")
+			}
 		}
 	}
 }
@@ -673,6 +697,39 @@ impl Interpreter {
 					Err(Error::ReturnStatement(value)) => Ok(value),
 					result => result,
 				}
+			}
+			Expr::Get { object, name } => {
+				let object = self.eval(*object)?;
+				let instance = object.into_instance().map_err(|object| {
+					Error::InvalidPropertyAccessTarget {
+						target_type: object.type_name(),
+						token: name.clone(),
+					}
+				})?;
+
+				let value = instance
+					.borrow()
+					.get(&name.lexeme)
+					.ok_or(Error::UndefinedProperty { name })?;
+				Ok(value)
+			}
+			Expr::Set {
+				object,
+				name,
+				value,
+			} => {
+				let object = self.eval(*object)?;
+
+				let instance = object.into_instance().map_err(|object| {
+					Error::InvalidPropertyAccessTarget {
+						target_type: object.type_name(),
+						token: name.clone(),
+					}
+				})?;
+
+				let value = self.eval(*value)?;
+				instance.borrow_mut().set(name.lexeme, value.clone());
+				Ok(value)
 			}
 		}
 	}

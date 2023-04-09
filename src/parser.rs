@@ -65,6 +65,15 @@ pub enum Expr {
 		closing_parenthesis: Token,
 		arguments: Vec<Expr>,
 	},
+	Get {
+		object: Box<Expr>,
+		name: Token,
+	},
+	Set {
+		object: Box<Expr>,
+		name: Token,
+		value: Box<Expr>,
+	},
 }
 
 impl Display for Expr {
@@ -614,6 +623,11 @@ impl Parser {
 						name,
 						value: Box::new(value),
 					}),
+					Expr::Get { object, name } => Ok(Expr::Set {
+						object,
+						name,
+						value: Box::new(value),
+					}),
 					_ => Err(Error {
 						kind: ErrorKind::InvalidAssignmentTarget,
 						token: equals,
@@ -781,6 +795,26 @@ impl Parser {
 				}) => {
 					let _ = self.tokens.next();
 					expr = self.finish_call(expr)?;
+				}
+				Some(Token {
+					token_type: TokenType::Dot,
+					..
+				}) => {
+					let _ = self.tokens.next();
+					let name =
+						expect_token_type!(self, TokenType::Identifier(_)).map_err(|token| {
+							Error {
+								kind: ErrorKind::ExpectedIdentifier {
+									place: "property name",
+								},
+								token,
+							}
+						})?;
+
+					expr = Expr::Get {
+						object: Box::new(expr),
+						name,
+					};
 				}
 				_ => break,
 			}
@@ -963,7 +997,7 @@ fn print_ast(expr: &Expr, w: &mut impl std::fmt::Write) -> std::fmt::Result {
 			operator,
 			right,
 		} => parenthesize(w, &operator.lexeme, &[left, right]),
-		Expr::Call { .. } => todo!(),
+		expr => todo!("{expr:?}"),
 	}
 }
 

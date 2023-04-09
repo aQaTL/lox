@@ -176,6 +176,20 @@ impl<'a> Resolver<'a> {
 					self.resolve_expr(argument)?;
 				}
 			}
+			Expr::Get {
+				object,
+				name: _name,
+			} => {
+				self.resolve_expr(*object)?;
+			}
+			Expr::Set {
+				object,
+				name: _name,
+				value,
+			} => {
+				self.resolve_expr(*value)?;
+				self.resolve_expr(*object)?;
+			}
 		}
 		Ok(())
 	}

@@ -1,0 +1,23 @@
+class Foo { }
+
+var foo = Foo();
+
+foo.test = "hello world";
+
+print foo.test;
+
+foo.ala = 123;
+foo.ma = "foobar";
+foo.kota = 23.3;
+
+print "foo.ala: " + foo.ala;
+print "foo.ma: " + foo.ma;
+print "foo.kota: " + foo.kota;
+
+foo.ala = "alamakota";
+foo.ma = 9;
+
+print "foo.ala: " + foo.ala;
+print "foo.ma: " + foo.ma;
+print "foo.kota: " + foo.kota;
+
