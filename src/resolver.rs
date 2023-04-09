@@ -7,6 +7,7 @@ use std::fmt::{Display, Formatter};
 pub struct Resolver<'a> {
 	interpreter: &'a mut Interpreter,
 	scopes: Vec<HashMap<String, InitializerResolving>>,
+	current_function: FunctionType,
 }
 
 enum InitializerResolving {
@@ -14,10 +15,17 @@ enum InitializerResolving {
 	InProgress,
 }
 
+#[derive(Copy, Clone)]
+enum FunctionType {
+	None,
+	Function,
+}
+
 #[derive(Debug)]
 pub enum Error {
 	VariableReadFromItsInitializer,
 	VariableAlreadyExists(Token),
+	ReturnFromGlobalScope(Token),
 }
 
 impl Display for Error {
@@ -28,6 +36,9 @@ impl Display for Error {
 			}
 			Error::VariableAlreadyExists(Token { lexeme, .. }) => {
 				write!(f, "Variable {lexeme} already exists in this scope.")
+			}
+			Error::ReturnFromGlobalScope(Token { line, .. }) => {
+				write!(f, "[line {line}] Can't return from global scope.")
 			}
 		}
 	}
@@ -40,6 +51,7 @@ impl<'a> Resolver<'a> {
 		Resolver {
 			interpreter,
 			scopes: Vec::default(),
+			current_function: FunctionType::None,
 		}
 	}
 
@@ -81,12 +93,13 @@ impl<'a> Resolver<'a> {
 				Stmt::Function { name, params, body } => {
 					self.declare(name.clone())?;
 					self.define(name);
-					self.resolve_function(params, body)?;
+					self.resolve_function(params, body, FunctionType::Function)?;
 				}
-				Stmt::Return {
-					keyword: _keyword,
-					value,
-				} => {
+				Stmt::Return { keyword, value } => {
+					if matches!(self.current_function, FunctionType::None) {
+						return Err(Error::ReturnFromGlobalScope(keyword));
+					}
+
 					if !matches!(
 						value,
 						Expr::Literal(Token {
@@ -169,7 +182,15 @@ impl<'a> Resolver<'a> {
 		}
 	}
 
-	fn resolve_function(&mut self, params: Vec<Token>, body: Vec<Stmt>) -> Result<(), Error> {
+	fn resolve_function(
+		&mut self,
+		params: Vec<Token>,
+		body: Vec<Stmt>,
+		kind: FunctionType,
+	) -> Result<(), Error> {
+		let enclosing_function = self.current_function;
+		self.current_function = kind;
+
 		self.begin_scope();
 		for param in params {
 			self.declare(param.clone())?;
@@ -177,6 +198,9 @@ impl<'a> Resolver<'a> {
 		}
 		self.resolve_statements(body)?;
 		self.end_scope();
+
+		self.current_function = enclosing_function;
+
 		Ok(())
 	}
 

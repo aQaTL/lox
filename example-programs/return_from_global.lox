@@ -1,0 +1,10 @@
+
+fun foo() {
+	return "bar";
+}
+
+var foo_result = foo();
+print "foo() returned " + foo_result;
+
+// Returning from global scope is an error
+// return "foobar";
