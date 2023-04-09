@@ -1,3 +1,4 @@
+use crate::class::Instance;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -72,5 +73,17 @@ impl Callable for Function {
 		}
 		interpreter.interpret_block(self.declaration_body.clone(), env)?;
 		Ok(Value::Null)
+	}
+}
+
+impl Function {
+	pub fn bind(self, instance: Rc<RefCell<Instance>>) -> Self {
+		let env = Environment::new(Rc::clone(&self.closure));
+		env.borrow_mut()
+			.define("this".to_string(), Some(Value::Instance(instance)));
+		Function {
+			closure: env,
+			..self
+		}
 	}
 }

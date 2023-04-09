@@ -1,4 +1,4 @@
-use crate::parser::{Expr, Stmt};
+use crate::parser::{Expr, FunctionStatement, Stmt};
 use crate::token::{Token, TokenType};
 use crate::Interpreter;
 use std::collections::HashMap;
@@ -7,7 +7,9 @@ use std::fmt::{Display, Formatter};
 pub struct Resolver<'a> {
 	interpreter: &'a mut Interpreter,
 	scopes: Vec<HashMap<String, InitializerResolving>>,
+
 	current_function: FunctionType,
+	current_class: ClassType,
 }
 
 enum InitializerResolving {
@@ -19,6 +21,13 @@ enum InitializerResolving {
 enum FunctionType {
 	None,
 	Function,
+	Method,
+}
+
+#[derive(Copy, Clone)]
+enum ClassType {
+	None,
+	Class,
 }
 
 #[derive(Debug)]
@@ -26,19 +35,23 @@ pub enum Error {
 	VariableReadFromItsInitializer,
 	VariableAlreadyExists(Token),
 	ReturnFromGlobalScope(Token),
+	ThisKeywordOutsideClass(Token),
 }
 
 impl Display for Error {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		match self {
 			Error::VariableReadFromItsInitializer => {
-				write!(f, "Cant read local variable in its own initializer")
+				write!(f, "Cant read local variable in its own initializer.")
 			}
 			Error::VariableAlreadyExists(Token { lexeme, .. }) => {
 				write!(f, "Variable {lexeme} already exists in this scope.")
 			}
 			Error::ReturnFromGlobalScope(Token { line, .. }) => {
 				write!(f, "[line {line}] Can't return from global scope.")
+			}
+			Error::ThisKeywordOutsideClass(Token { line, .. }) => {
+				write!(f, "[line {line}] Can't use `this` outside of a class.")
 			}
 		}
 	}
@@ -52,6 +65,7 @@ impl<'a> Resolver<'a> {
 			interpreter,
 			scopes: Vec::default(),
 			current_function: FunctionType::None,
+			current_class: ClassType::None,
 		}
 	}
 
@@ -90,10 +104,10 @@ impl<'a> Resolver<'a> {
 					self.resolve_expr(condition)?;
 					self.resolve_statements(std::iter::once(*body))?;
 				}
-				Stmt::Function { name, params, body } => {
-					self.declare(name.clone())?;
-					self.define(name);
-					self.resolve_function(params, body, FunctionType::Function)?;
+				Stmt::Function(function) => {
+					self.declare(function.name.clone())?;
+					self.define(function.name.clone());
+					self.resolve_function(function, FunctionType::Function)?;
 				}
 				Stmt::Return { keyword, value } => {
 					if matches!(self.current_function, FunctionType::None) {
@@ -110,12 +124,27 @@ impl<'a> Resolver<'a> {
 						self.resolve_expr(value)?;
 					}
 				}
-				Stmt::Class {
-					name,
-					methods: _methods,
-				} => {
+				Stmt::Class { name, methods } => {
+					let enclosing_class = self.current_class;
+					self.current_class = ClassType::Class;
+
 					self.declare(name.clone())?;
 					self.define(name);
+
+					self.begin_scope();
+
+					self.scopes
+						.last_mut()
+						.unwrap()
+						.insert("this".to_string(), InitializerResolving::Finished);
+
+					for method in methods {
+						self.resolve_function(method, FunctionType::Method)?;
+					}
+
+					self.end_scope();
+
+					self.current_class = enclosing_class;
 				}
 			}
 		}
@@ -190,6 +219,13 @@ impl<'a> Resolver<'a> {
 				self.resolve_expr(*value)?;
 				self.resolve_expr(*object)?;
 			}
+			Expr::This { ref keyword } => {
+				let keyword = keyword.clone();
+				if let ClassType::None = self.current_class {
+					return Err(Error::ThisKeywordOutsideClass(keyword));
+				}
+				self.resolve_local(expr, keyword);
+			}
 		}
 		Ok(())
 	}
@@ -205,8 +241,7 @@ impl<'a> Resolver<'a> {
 
 	fn resolve_function(
 		&mut self,
-		params: Vec<Token>,
-		body: Vec<Stmt>,
+		FunctionStatement { params, body, .. }: FunctionStatement,
 		kind: FunctionType,
 	) -> Result<(), Error> {
 		let enclosing_function = self.current_function;

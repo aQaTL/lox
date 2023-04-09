@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::{cell::RefCell, fmt::Display, rc::Rc};
 
+use crate::class::Instance;
+use crate::parser::FunctionStatement;
 use crate::{
 	class::{self, Class},
 	environment::{self, Environment},
@@ -312,7 +314,7 @@ impl Interpreter {
 						self.interpret(std::iter::once(body.clone()))?;
 					}
 				}
-				Stmt::Function { name, params, body } => {
+				Stmt::Function(FunctionStatement { name, params, body }) => {
 					self.environment.borrow_mut().define(
 						name.lexeme.clone(),
 						Some(Value::Function(Rc::new(function::Function {
@@ -330,17 +332,27 @@ impl Interpreter {
 					let value = self.eval(value)?;
 					return Err(Error::ReturnStatement(value));
 				}
-				Stmt::Class {
-					name,
-					methods: _methods,
-				} => {
+				Stmt::Class { name, methods } => {
 					self.environment
 						.borrow_mut()
 						.define(name.lexeme.clone(), None);
+
+					let mut class_methods = HashMap::<String, function::Function>::new();
+					for FunctionStatement { name, params, body } in methods {
+						let function = function::Function {
+							declaration_name: name.clone(),
+							declaration_params: params,
+							declaration_body: body,
+							closure: Rc::clone(&self.environment),
+						};
+						class_methods.insert(name.lexeme, function);
+					}
+
 					let name_lexeme = name.lexeme.clone();
-					self.environment
-						.borrow_mut()
-						.assign(&name_lexeme, Value::Function(Rc::new(Class { name })))?;
+					self.environment.borrow_mut().assign(
+						&name_lexeme,
+						Value::Function(Rc::new(Class::new(name, class_methods))),
+					)?;
 				}
 			}
 		}
@@ -707,9 +719,7 @@ impl Interpreter {
 					}
 				})?;
 
-				let value = instance
-					.borrow()
-					.get(&name.lexeme)
+				let value = Instance::get(&instance, &name.lexeme)
 					.ok_or(Error::UndefinedProperty { name })?;
 				Ok(value)
 			}
@@ -730,6 +740,10 @@ impl Interpreter {
 				let value = self.eval(*value)?;
 				instance.borrow_mut().set(name.lexeme, value.clone());
 				Ok(value)
+			}
+			Expr::This { ref keyword } => {
+				let var = self.look_up_variable(keyword.clone(), expr)?;
+				Ok(var)
 			}
 		}
 	}

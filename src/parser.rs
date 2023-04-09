@@ -22,19 +22,22 @@ pub enum Stmt {
 		condition: Expr,
 		body: Box<Stmt>,
 	},
-	Function {
-		name: Token,
-		params: Vec<Token>,
-		body: Vec<Stmt>,
-	},
+	Function(FunctionStatement),
 	Return {
 		keyword: Token,
 		value: Expr,
 	},
 	Class {
 		name: Token,
-		methods: Vec<Stmt>,
+		methods: Vec<FunctionStatement>,
 	},
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionStatement {
+	pub name: Token,
+	pub params: Vec<Token>,
+	pub body: Vec<Stmt>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -73,6 +76,9 @@ pub enum Expr {
 		object: Box<Expr>,
 		name: Token,
 		value: Box<Expr>,
+	},
+	This {
+		keyword: Token,
 	},
 }
 
@@ -280,7 +286,11 @@ impl Parser {
 			{
 				break;
 			}
-			methods.push(self.function("method")?);
+			let method = match self.function("method")? {
+				Stmt::Function(v) => v,
+				_ => panic!(),
+			};
+			methods.push(method);
 		}
 
 		expect_token_type!(self, TokenType::RightBrace).map_err(|token| Error {
@@ -356,7 +366,7 @@ impl Parser {
 
 		let body = self.block()?;
 
-		Ok(Stmt::Function { name, params, body })
+		Ok(Stmt::Function(FunctionStatement { name, params, body }))
 	}
 
 	fn statement(&mut self) -> Result<Stmt, Error> {
@@ -879,6 +889,7 @@ impl Parser {
 			| TokenType::True
 			| TokenType::False
 			| TokenType::Nil => Ok(Expr::Literal(token)),
+			TokenType::This => Ok(Expr::This { keyword: token }),
 			TokenType::LeftParen => {
 				let expr = self.expression()?;
 				match self.tokens.next() {
