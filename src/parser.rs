@@ -29,6 +29,7 @@ pub enum Stmt {
 	},
 	Class {
 		name: Token,
+		superclass: Option<Token>,
 		methods: Vec<FunctionStatement>,
 	},
 }
@@ -80,6 +81,10 @@ pub enum Expr {
 	This {
 		keyword: Token,
 	},
+	Super {
+		keyword: Token,
+		method: Token,
+	},
 }
 
 impl Display for Expr {
@@ -111,6 +116,7 @@ pub enum ErrorKind {
 	InvalidAssignmentTarget,
 	ExceededArgumentsLimit,
 	ExpectedComma,
+	ExpectedDot,
 }
 
 impl Display for Error {
@@ -130,6 +136,7 @@ impl Display for Error {
 			ErrorKind::ExpectedLeftParenthesis => write!(f, "expected `(`")?,
 			ErrorKind::ExceededArgumentsLimit => write!(f, "can't have more than 255 arguments")?,
 			ErrorKind::ExpectedComma => write!(f, "expected `,`")?,
+			ErrorKind::ExpectedDot => write!(f, "expected `.`")?,
 		}
 		match &self.token {
 			None
@@ -270,6 +277,24 @@ impl Parser {
 			token,
 		})?;
 
+		let superclass = match self.tokens.peek() {
+			Some(Token {
+				token_type: TokenType::Less,
+				..
+			}) => {
+				let _ = self.tokens.next();
+				Some(
+					expect_token_type!(self, TokenType::Identifier(_)).map_err(|token| Error {
+						kind: ErrorKind::ExpectedIdentifier {
+							place: "superclass",
+						},
+						token,
+					})?,
+				)
+			}
+			_ => None,
+		};
+
 		expect_token_type!(self, TokenType::LeftBrace).map_err(|token| Error {
 			kind: ErrorKind::ExpectedLeftBrace,
 			token,
@@ -298,7 +323,11 @@ impl Parser {
 			token,
 		})?;
 
-		Ok(Stmt::Class { name, methods })
+		Ok(Stmt::Class {
+			name,
+			superclass,
+			methods,
+		})
 	}
 
 	fn function(&mut self, place: &'static str) -> Result<Stmt, Error> {
@@ -890,6 +919,22 @@ impl Parser {
 			| TokenType::False
 			| TokenType::Nil => Ok(Expr::Literal(token)),
 			TokenType::This => Ok(Expr::This { keyword: token }),
+			TokenType::Super => {
+				expect_token_type!(self, TokenType::Dot).map_err(|token| Error {
+					kind: ErrorKind::ExpectedDot,
+					token,
+				})?;
+
+				let method =
+					expect_token_type!(self, TokenType::Identifier(_)).map_err(|token| Error {
+						kind: ErrorKind::ExpectedIdentifier { place: "super" },
+						token,
+					})?;
+				Ok(Expr::Super {
+					keyword: token,
+					method,
+				})
+			}
 			TokenType::LeftParen => {
 				let expr = self.expression()?;
 				match self.tokens.next() {

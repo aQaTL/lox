@@ -5,7 +5,7 @@ use crate::{interpreter::Value, token::Token};
 #[derive(Debug, Default, Clone)]
 pub struct Environment {
 	// outer / parent scope
-	enclosing: Option<Rc<RefCell<Environment>>>,
+	pub enclosing: Option<Rc<RefCell<Environment>>>,
 	values: HashMap<String, Option<Value>>,
 }
 

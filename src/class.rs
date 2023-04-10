@@ -17,8 +17,16 @@ impl Display for Class {
 }
 
 impl Class {
-	pub fn new(name: Token, methods: HashMap<String, Function>) -> Self {
-		Class(Rc::new(ClassInner { name, methods }))
+	pub fn new(name: Token, superclass: Option<Self>, methods: HashMap<String, Function>) -> Self {
+		Class(Rc::new(ClassInner {
+			name,
+			superclass: superclass.map(|c| c.0),
+			methods,
+		}))
+	}
+
+	pub fn find_method(&self, name: &str) -> Option<Function> {
+		self.0.find_method(name)
 	}
 }
 
@@ -50,6 +58,7 @@ impl Callable for Class {
 #[derive(Debug)]
 struct ClassInner {
 	name: Token,
+	superclass: Option<Rc<ClassInner>>,
 	methods: HashMap<String, Function>,
 }
 
@@ -61,7 +70,15 @@ impl Display for ClassInner {
 
 impl ClassInner {
 	fn find_method(&self, name: &str) -> Option<Function> {
-		self.methods.get(name).cloned()
+		if let m @ Some(_) = self.methods.get(name).cloned() {
+			return m;
+		}
+
+		if let Some(ref superclass) = self.superclass {
+			return superclass.find_method(name);
+		}
+
+		None
 	}
 }
 
@@ -74,6 +91,15 @@ pub struct Instance {
 impl Display for Instance {
 	fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
 		write!(f, "{} instance", self.class)
+	}
+}
+
+impl PartialEq for Instance {
+	fn eq(&self, other: &Self) -> bool {
+		if self.class.name.lexeme != other.class.name.lexeme {
+			return false;
+		}
+		self.fields == other.fields
 	}
 }
 

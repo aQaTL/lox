@@ -2,3 +2,22 @@ class Bagel {}
 var bagel = Bagel();
 
 print bagel;
+
+var x = bagel == Bagel;
+print x;
+
+var b = Bagel;
+x = Bagel == b;
+print x;
+
+var b2 = Bagel();
+x = bagel == b2;
+print x;
+
+bagel.foo = "ala";
+x = bagel == b2;
+print x;
+
+b2.foo = "ala";
+x = bagel == b2;
+print x;

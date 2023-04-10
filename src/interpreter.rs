@@ -6,6 +6,7 @@ use crate::parser::FunctionStatement;
 use crate::{
 	class::{self, Class},
 	environment::{self, Environment},
+	interpreter::function::Callable,
 	parser::{Expr, Stmt},
 	token::{Token, TokenType},
 };
@@ -36,8 +37,15 @@ pub enum Value {
 	Bool(bool),
 	Number(f64),
 	String(String),
-	Function(Rc<dyn function::Callable>),
+	Function(Rc<dyn Callable>),
+	Class(Class),
 	Instance(Rc<RefCell<class::Instance>>),
+}
+
+impl PartialEq for Value {
+	fn eq(&self, other: &Self) -> bool {
+		self.is_equal(other)
+	}
 }
 
 impl Value {
@@ -48,7 +56,8 @@ impl Value {
 			Value::Number(_) => "Number".to_string(),
 			Value::String(_) => "String".to_string(),
 			Value::Function(callable) => callable.type_name(),
-			Value::Instance(class) => class.borrow().to_string(),
+			Value::Class(class) => class.type_name(),
+			Value::Instance(instance) => instance.borrow().to_string(),
 		}
 	}
 
@@ -66,15 +75,21 @@ impl Value {
 			(Value::Bool(a), Value::Bool(b)) => a == b,
 			(Value::Number(a), Value::Number(b)) => a == b,
 			(Value::String(a), Value::String(b)) => a == b,
-			//TODO compare classes
-			(Value::Instance(_), Value::Instance(_)) => true,
+			(Value::Function(a), Value::Function(b)) => a.type_name() == b.type_name(),
+			(Value::Class(a), Value::Class(b)) => a.type_name() == b.type_name(),
+			(Value::Instance(a), Value::Instance(b)) => a == b,
 			_ => false,
 		}
 	}
 
-	fn into_callable(self) -> Option<Rc<dyn function::Callable>> {
+	fn as_callable(&self) -> Option<&dyn Callable> {
+		use std::ops::Deref;
 		match self {
-			Value::Function(callable) => Some(callable),
+			Value::Function(callable) => {
+				let callable: &dyn Callable = callable.deref();
+				Some(callable)
+			}
+			Value::Class(class) => Some(class),
 			_ => None,
 		}
 	}
@@ -83,6 +98,13 @@ impl Value {
 		match self {
 			Value::Instance(instance) => Ok(instance),
 			_ => Err(self),
+		}
+	}
+
+	fn into_class(self) -> Option<Class> {
+		match self {
+			Value::Class(class) => Some(class),
+			_ => None,
 		}
 	}
 }
@@ -94,8 +116,9 @@ impl Display for Value {
 			Value::Bool(v) => write!(f, "{v}"),
 			Value::Number(n) => write!(f, "{n}"),
 			Value::String(s) => write!(f, "{s}"),
-			Value::Instance(class) => write!(f, "{}", class.borrow()),
-			Value::Function(_) => todo!(),
+			Value::Instance(instance) => write!(f, "{}", instance.borrow()),
+			Value::Function(callable) => write!(f, "{}", callable.type_name()),
+			Value::Class(class) => write!(f, "{}", class.type_name()),
 		}
 	}
 }
@@ -168,6 +191,10 @@ pub enum Error {
 	},
 	UndefinedProperty {
 		name: Token,
+	},
+	SuperClassIsNotAClass {
+		superclass_ident: Token,
+		value: Value,
 	},
 
 	ReturnStatement(Value),
@@ -264,6 +291,16 @@ impl Display for Error {
 			} => {
 				write!(f, "[line {line}] undefined property {lexeme}")
 			}
+			Error::SuperClassIsNotAClass {
+				superclass_ident: Token { line, .. },
+				value,
+			} => {
+				write!(
+					f,
+					"[line {line}] super class must be a class; got `{}` instead",
+					value.type_name()
+				)
+			}
 
 			Error::ReturnStatement(_) => write!(f, "return"),
 		}
@@ -335,10 +372,34 @@ impl Interpreter {
 					let value = self.eval(value)?;
 					return Err(Error::ReturnStatement(value));
 				}
-				Stmt::Class { name, methods } => {
+				Stmt::Class {
+					name,
+					superclass,
+					methods,
+				} => {
+					let superclass = match superclass {
+						Some(superclass) => match self.eval(Expr::Variable(superclass.clone()))? {
+							Value::Class(class) => Some(class),
+							value => {
+								return Err(Error::SuperClassIsNotAClass {
+									superclass_ident: superclass,
+									value,
+								})
+							}
+						},
+						None => None,
+					};
+
 					self.environment
 						.borrow_mut()
 						.define(name.lexeme.clone(), None);
+
+					if let Some(ref superclass) = superclass {
+						self.environment = Environment::new(Rc::clone(&self.environment));
+						self.environment
+							.borrow_mut()
+							.define("super".to_string(), Some(Value::Class(superclass.clone())));
+					}
 
 					let mut class_methods = HashMap::<String, function::Function>::new();
 					for FunctionStatement { name, params, body } in methods {
@@ -352,10 +413,21 @@ impl Interpreter {
 						class_methods.insert(name.lexeme, function);
 					}
 
+					if superclass.is_some() {
+						let enclosing = self
+							.environment
+							.borrow()
+							.enclosing
+							.as_ref()
+							.map(Rc::clone)
+							.unwrap();
+						self.environment = enclosing;
+					}
+
 					let name_lexeme = name.lexeme.clone();
 					self.environment.borrow_mut().assign(
 						&name_lexeme,
-						Value::Function(Rc::new(Class::new(name, class_methods))),
+						Value::Class(Class::new(name, superclass, class_methods)),
 					)?;
 				}
 			}
@@ -697,7 +769,7 @@ impl Interpreter {
 					evaluted_arguments.push(self.eval(argument)?);
 				}
 
-				let Some(function) = callee.into_callable() else {
+				let Some(function) = callee.as_callable() else {
                     return Err(Error::InvalidFunctionCallee(closing_parenthesis));
                 };
 
@@ -748,6 +820,33 @@ impl Interpreter {
 			Expr::This { ref keyword } => {
 				let var = self.look_up_variable(keyword.clone(), expr)?;
 				Ok(var)
+			}
+			Expr::Super {
+				ref keyword,
+				ref method,
+			} => {
+				let distance = self.locals.get(&expr).unwrap();
+
+				let superclass =
+					Environment::get_at(Rc::clone(&self.environment), "super", *distance)
+						.into_class()
+						.expect("super is not a class");
+				let object =
+					Environment::get_at(Rc::clone(&self.environment), "this", *distance - 1)
+						.into_instance()
+						.map_err(|object| Error::InvalidPropertyAccessTarget {
+							target_type: object.type_name(),
+							token: keyword.clone(),
+						})?;
+
+				let method =
+					superclass
+						.find_method(&method.lexeme)
+						.ok_or(Error::UndefinedProperty {
+							name: method.clone(),
+						})?;
+
+				Ok(Value::Function(Rc::new(method.bind(object))))
 			}
 		}
 	}

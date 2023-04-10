@@ -29,6 +29,7 @@ enum FunctionType {
 enum ClassType {
 	None,
 	Class,
+	Subclass,
 }
 
 #[derive(Debug)]
@@ -38,6 +39,9 @@ pub enum Error {
 	ReturnFromGlobalScope(Token),
 	ThisKeywordOutsideClass(Token),
 	ReturnValueFromInitializer(Token),
+	InheritanceFromItself(Token),
+	SuperInClassWithoutSuperclass(Token),
+	SuperOutsideClass(Token),
 }
 
 impl Display for Error {
@@ -57,6 +61,18 @@ impl Display for Error {
 			}
 			Error::ReturnValueFromInitializer(Token { line, .. }) => {
 				write!(f, "[line {line}] Can't return a value from an initializer.")
+			}
+			Error::InheritanceFromItself(Token { line, .. }) => {
+				write!(f, "[line {line}] A class can't inherit from itself.")
+			}
+			Error::SuperInClassWithoutSuperclass(Token { line, .. }) => {
+				write!(
+					f,
+					"[line {line}] Can't use `super` in a class with no superclass."
+				)
+			}
+			Error::SuperOutsideClass(Token { line, .. }) => {
+				write!(f, "[line {line}] Can't use `super` outside of a class.")
 			}
 		}
 	}
@@ -133,12 +149,36 @@ impl<'a> Resolver<'a> {
 						self.resolve_expr(value)?;
 					}
 				}
-				Stmt::Class { name, methods } => {
+				Stmt::Class {
+					name,
+					superclass,
+					methods,
+				} => {
 					let enclosing_class = self.current_class;
 					self.current_class = ClassType::Class;
 
 					self.declare(name.clone())?;
-					self.define(name);
+					self.define(name.clone());
+
+					let has_superclass = if let Some(superclass) = superclass {
+						self.current_class = ClassType::Subclass;
+
+						if name.lexeme == superclass.lexeme {
+							return Err(Error::InheritanceFromItself(superclass));
+						}
+
+						self.resolve_expr(Expr::Variable(superclass))?;
+
+						self.begin_scope();
+						self.scopes
+							.last_mut()
+							.unwrap()
+							.insert("super".to_string(), InitializerResolving::Finished);
+
+						true
+					} else {
+						false
+					};
 
 					self.begin_scope();
 
@@ -157,6 +197,10 @@ impl<'a> Resolver<'a> {
 					}
 
 					self.end_scope();
+
+					if has_superclass {
+						self.end_scope();
+					}
 
 					self.current_class = enclosing_class;
 				}
@@ -237,6 +281,15 @@ impl<'a> Resolver<'a> {
 				let keyword = keyword.clone();
 				if let ClassType::None = self.current_class {
 					return Err(Error::ThisKeywordOutsideClass(keyword));
+				}
+				self.resolve_local(expr, keyword);
+			}
+			Expr::Super { ref keyword, .. } => {
+				let keyword = keyword.clone();
+				match self.current_class {
+					ClassType::Class => return Err(Error::SuperInClassWithoutSuperclass(keyword)),
+					ClassType::None => return Err(Error::SuperOutsideClass(keyword)),
+					ClassType::Subclass => (),
 				}
 				self.resolve_local(expr, keyword);
 			}
